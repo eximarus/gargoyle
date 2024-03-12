@@ -1,0 +1,22 @@
+.{
+    .name = "gargoyle",
+    .version = "0.1.0",
+    .dependencies = .{
+        .mach_glfw = .{
+            .url = "https://pkg.machengine.org/mach-glfw/63da35e57c3695a787b927e69e4140eb74ffc234.tar.gz",
+            .hash = "1220fda87b59df6353864651cdd3943f1159d8d517a45cd67bed493fe6c0a0c78c17",
+        },
+        .mach_gpu = . {
+            .url = "https://pkg.machengine.org/mach-gpu/47244d1e216284a3389bd42af431f59f39a8f67e.tar.gz",
+            .hash = "1220e77a3e8386f57f73685026e43a17385ec8b3fb6e9873c9c793defd30651cfa09",
+        },
+        // .mach_gpu_dawn = . {
+            // .url = "https://pkg.machengine.org/mach-gpu-dawn/1cce80c9388069eeb42287c3c926c88ea7158101.tar.gz",
+            // .hash = "1220a841b94e39237d3fdb90903a439dde2544ff1c0f2ebfbfd5215b0d4beac2093a",
+        // },
+        .zmath = .{ .path = "libs/zmath" },
+    },
+    .paths = .{
+        "",
+    },
+}
