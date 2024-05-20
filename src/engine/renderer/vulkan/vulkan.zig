@@ -343,6 +343,54 @@ pub const Device = extern struct {
         swapchain.handle = null;
     }
 
+    pub inline fn createShaderModule(
+        self: Device,
+        info: *const c.VkShaderModuleCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !ShaderModule {
+        var mod: ShaderModule = undefined;
+        try vkCheck(c.vkCreateShaderModule.?(
+            self.handle,
+            info,
+            allocator,
+            &mod.handle,
+        ));
+        return mod;
+    }
+
+    pub inline fn createPipelineLayout(
+        self: Device,
+        info: *const c.VkPipelineLayoutCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !PipelineLayout {
+        var layout: PipelineLayout = undefined;
+        try vkCheck(c.vkCreatePipelineLayout.?(
+            self.handle,
+            info,
+            allocator,
+            &layout.handle,
+        ));
+        return layout;
+    }
+
+    pub inline fn createComputePipelines(
+        self: Device,
+        cache: ?PipelineCache,
+        infos: []const c.VkComputePipelineCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !Pipeline {
+        var pipeline: Pipeline = undefined;
+        try vkCheck(c.vkCreateComputePipelines.?(
+            self.handle,
+            if (cache) |value| value.handle else null,
+            @intCast(infos.len),
+            @ptrCast(infos.ptr),
+            allocator,
+            &pipeline.handle,
+        ));
+        return pipeline;
+    }
+
     pub inline fn createImageView(
         self: Device,
         create_info: *const c.VkImageViewCreateInfo,
@@ -430,6 +478,66 @@ pub const Device = extern struct {
         list.items.len += image_count;
     }
 
+    pub inline fn createDescriptorPool(
+        self: Device,
+        info: *const c.VkDescriptorPoolCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !DescriptorPool {
+        var pool: DescriptorPool = undefined;
+        try vkCheck(c.vkCreateDescriptorPool.?(
+            self.handle,
+            info,
+            allocator,
+            &pool.handle,
+        ));
+        return pool;
+    }
+
+    pub inline fn resetDescriptorPool(
+        self: Device,
+        pool: DescriptorPool,
+        flags: c.VkDescriptorPoolResetFlags,
+    ) Result {
+        return result(c.vkResetDescriptorPool.?(
+            self.handle,
+            pool.handle,
+            flags,
+        ));
+    }
+
+    pub inline fn destroyDescriptorPool(
+        self: Device,
+        pool: DescriptorPool,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        c.vkDestroyDescriptorPool.?(
+            self.handle,
+            pool.handle,
+            allocator,
+        );
+    }
+
+    pub inline fn allocateDescriptorSet(
+        self: Device,
+        info: *const c.VkDescriptorSetAllocateInfo,
+    ) !DescriptorSet {
+        var descriptor_set: [1]DescriptorSet = undefined;
+        try check(self.allocateDescriptorSets(info, &descriptor_set));
+        return descriptor_set[0];
+    }
+
+    pub inline fn allocateDescriptorSets(
+        self: Device,
+        info: *const c.VkDescriptorSetAllocateInfo,
+        out_descriptor_sets: [*]DescriptorSet,
+    ) Result {
+        return result(c.vkAllocateDescriptorSets.?(
+            self.handle,
+            info,
+            @ptrCast(out_descriptor_sets),
+        ));
+    }
+
     pub inline fn createCommandPool(
         self: Device,
         info: *const c.VkCommandPoolCreateInfo,
@@ -456,6 +564,35 @@ pub const Device = extern struct {
             &buffer.handle,
         ));
         return buffer;
+    }
+
+    pub inline fn createDescriptorSetLayout(
+        self: Device,
+        info: *const c.VkDescriptorSetLayoutCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !DescriptorSetLayout {
+        var layout: DescriptorSetLayout = undefined;
+        try vkCheck(c.vkCreateDescriptorSetLayout.?(
+            self.handle,
+            info,
+            allocator,
+            &layout.handle,
+        ));
+        return layout;
+    }
+
+    pub inline fn updateDescriptorSets(
+        self: Device,
+        descriptor_writes: []const c.VkWriteDescriptorSet,
+        descriptor_copies: []const c.VkCopyDescriptorSet,
+    ) void {
+        c.vkUpdateDescriptorSets.?(
+            self.handle,
+            @intCast(descriptor_writes.len),
+            @ptrCast(descriptor_writes.ptr),
+            @intCast(descriptor_copies.len),
+            @ptrCast(descriptor_copies.ptr),
+        );
     }
 
     pub inline fn waitIdle(self: Device) Result {
@@ -669,6 +806,13 @@ pub const CommandBuffer = extern struct {
 
     pub inline fn end(self: CommandBuffer) Result {
         return result(c.vkEndCommandBuffer.?(self.handle));
+    }
+
+    pub inline fn blitImage2(
+        self: CommandBuffer,
+        info: *const c.VkBlitImageInfo2,
+    ) void {
+        c.vkCmdBlitImage2.?(self.handle, info);
     }
 
     // c.vkCmdBindPipeline

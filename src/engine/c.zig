@@ -1,8 +1,8 @@
 pub usingnamespace @cImport({
     @cDefine("SDL_MAIN_HANDLED", {});
-    @cInclude("SDL.h");
-    @cInclude("SDL_vulkan.h");
-    @cInclude("SDL_syswm.h");
+    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL2/SDL_vulkan.h");
+    @cInclude("SDL2/SDL_syswm.h");
 
     @cInclude("volk.h");
 

@@ -4,6 +4,11 @@ const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
 const vma = @import("vma.zig");
 const common = @import("common.zig");
+const descriptors = @import("descriptors.zig");
+const pipelines = @import("pipelines.zig");
+
+const DescriptorLayoutBuilder = descriptors.DescriptorLayoutBuilder;
+const DescriptorAllocator = descriptors.DescriptorAllocator;
 const Config = @import("../../core/app_config.zig").RenderConfig;
 const CString = common.CString;
 const Window = @import("../../core/window.zig").Window;
@@ -49,8 +54,15 @@ frames: [frame_overlap]FrameData,
 
 vma_allocator: c.VmaAllocator,
 
+global_descriptor_allocator: DescriptorAllocator,
+
 draw_image: AllocatedImage,
 draw_extent: c.VkExtent2D,
+draw_image_descriptors: vk.DescriptorSet,
+draw_image_descriptor_layout: vk.DescriptorSetLayout,
+
+gradient_pipeline: vk.Pipeline,
+gradient_pipeline_layout: vk.PipelineLayout,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -170,6 +182,8 @@ pub fn init(
 
     try self.initCommands();
     try self.initSync();
+    try self.initDescriptors(allocator);
+    try self.initPipelines();
 
     return self;
 }
@@ -259,6 +273,79 @@ fn initCommands(self: *VulkanRenderer) !void {
     }
 }
 
+fn initDescriptors(self: *VulkanRenderer, allocator: std.mem.Allocator) !void {
+    try self.global_descriptor_allocator.initPool(
+        self.device,
+        10,
+        &.{
+            .{ .desc_type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1 },
+        },
+        allocator,
+    );
+
+    var builder = DescriptorLayoutBuilder{
+        .bindings = std.ArrayList(c.VkDescriptorSetLayoutBinding).init(allocator),
+    };
+    defer builder.bindings.deinit();
+
+    try builder.addBinding(0, c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    self.draw_image_descriptor_layout = try builder.build(
+        self.device,
+        c.VK_SHADER_STAGE_COMPUTE_BIT,
+        null,
+        0,
+    );
+
+    self.draw_image_descriptors = try self.global_descriptor_allocator.allocate(
+        self.device,
+        self.draw_image_descriptor_layout,
+    );
+
+    self.device.updateDescriptorSets(&.{
+        c.VkWriteDescriptorSet{
+            .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstBinding = 0,
+            .dstSet = self.draw_image_descriptors.handle,
+            .descriptorCount = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .pImageInfo = &c.VkDescriptorImageInfo{
+                .imageLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+                .imageView = self.draw_image.image_view.handle,
+            },
+        },
+    }, &.{});
+}
+
+fn initPipelines(self: *VulkanRenderer) !void {
+    self.gradient_pipeline_layout = try self.device.createPipelineLayout(&.{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pSetLayouts = &self.draw_image_descriptor_layout.handle,
+        .setLayoutCount = 1,
+    }, null);
+
+    const compute_draw_shader = try pipelines.loadShaderModule(
+        "../shaders/glsl/gradient.spv",
+        self.device,
+    );
+
+    self.gradient_pipeline = try self.device.createComputePipelines(
+        null,
+        &.{
+            c.VkComputePipelineCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                .layout = self.gradient_pipeline_layout.handle,
+                .stage = c.VkPipelineShaderStageCreateInfo{
+                    .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                    .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
+                    .module = compute_draw_shader.handle,
+                    .pName = "main",
+                },
+            },
+        },
+        null,
+    );
+}
+
 inline fn fenceCreateInfo(flags: c.VkFenceCreateFlags) c.VkFenceCreateInfo {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -343,22 +430,26 @@ pub fn render(self: *VulkanRenderer) !void {
         null,
     );
 
+    self.draw_extent = .{
+        .width = self.draw_image.image_extent.width,
+        .height = self.draw_image.image_extent.height,
+    };
+
     try vk.check(frame.command_buffer.reset(0));
     try vk.check(frame.command_buffer.begin(&.{
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     }));
 
-    const next_image = self.swapchain_images.items[swapchain_image_index];
     transitionImage(
         frame.command_buffer,
-        next_image,
+        self.draw_image.image,
         c.VK_IMAGE_LAYOUT_UNDEFINED,
         c.VK_IMAGE_LAYOUT_GENERAL,
     );
 
     frame.command_buffer.clearColorImage(
-        next_image,
+        self.draw_image.image,
         c.VK_IMAGE_LAYOUT_GENERAL,
         &.{
             .float32 = .{
@@ -371,10 +462,39 @@ pub fn render(self: *VulkanRenderer) !void {
         &.{imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
     );
 
+    // TODO
+    // cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_COMPUTE, self.gradient_pipeline);
+    // cmd.bindDescriptorSets(c.VK_PIPELINE_BIND_POINT_COMPUTE, self.gradient_pipeline_layout, 0, 1, &self.draw_image_descriptors, 0, null);
+    // cmd.dispatch(std::ceil(self.draw_extent.width / 16.0), std::ceil(self.draw_extent.height / 16.0), 1);
+
+    transitionImage(
+        frame.command_buffer,
+        self.draw_image.image,
+        c.VK_IMAGE_LAYOUT_GENERAL,
+        c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    );
+
+    const next_image = self.swapchain_images.items[swapchain_image_index];
+
     transitionImage(
         frame.command_buffer,
         next_image,
-        c.VK_IMAGE_LAYOUT_GENERAL,
+        c.VK_IMAGE_LAYOUT_UNDEFINED,
+        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    );
+
+    copyImageToImage(
+        frame.command_buffer,
+        self.draw_image.image,
+        next_image,
+        self.draw_extent,
+        self.swapchain_extent,
+    );
+
+    transitionImage(
+        frame.command_buffer,
+        next_image,
+        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     );
 
@@ -404,6 +524,55 @@ pub fn render(self: *VulkanRenderer) !void {
     }));
 
     self.frame_number += 1;
+}
+
+inline fn copyImageToImage(
+    cmd: vk.CommandBuffer,
+    src: vk.Image,
+    dst: vk.Image,
+    src_size: c.VkExtent2D,
+    dst_size: c.VkExtent2D,
+) void {
+    cmd.blitImage2(&.{
+        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+        .dstImage = dst.handle,
+        .dstImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcImage = src.handle,
+        .srcImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .filter = c.VK_FILTER_LINEAR,
+        .regionCount = 1,
+        .pRegions = &c.VkImageBlit2{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+            .srcOffsets = .{
+                .{},
+                .{
+                    .x = @bitCast(src_size.width),
+                    .y = @bitCast(src_size.height),
+                    .z = 1,
+                },
+            },
+            .dstOffsets = .{
+                .{},
+                .{
+                    .x = @bitCast(dst_size.width),
+                    .y = @bitCast(dst_size.height),
+                    .z = 1,
+                },
+            },
+            .srcSubresource = .{
+                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+                .mipLevel = 0,
+            },
+            .dstSubresource = .{
+                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+                .mipLevel = 0,
+            },
+        },
+    });
 }
 
 inline fn imageCreateInfo(
@@ -500,6 +669,11 @@ fn destroySwapchain(self: *VulkanRenderer) void {
 
 pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
+
+    // TODO
+    // self.device.destroyShaderModule(self.computeDrawShader, null);
+    // self.device.destroyPipelineLayout(self.gradient_pipeline_layout, null);
+    // self.device.destroyPipeline(self.gradient_pipeline, null);
 
     self.device.destroyImageView(&self.draw_image.image_view, null);
     _ = c.vmaDestroyImage(

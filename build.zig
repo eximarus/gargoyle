@@ -23,13 +23,13 @@ pub fn build(b: *std.Build) !void {
         []const u8,
         "app_root",
         "Root source file for your app.",
-    ) orelse @panic("app-root argument is required");
+    ) orelse "./sandbox/src/root.zig"; // @panic("app_root argument is required");
 
     const app_name = b.option(
         []const u8,
         "app_name",
         "What is the name of your app?",
-    ) orelse @panic("app-name argument is required");
+    ) orelse "sandbox"; // @panic("app_name argument is required");
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
