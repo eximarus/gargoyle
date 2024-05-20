@@ -938,7 +938,7 @@ inline fn vkCheck(r: c.VkResult) !void {
     return check(result(r));
 }
 
-inline fn result(r: c.VkResult) Result {
+pub inline fn result(r: c.VkResult) Result {
     return switch (r) {
         c.VK_SUCCESS => .Success,
         c.VK_NOT_READY => .NotReady,
