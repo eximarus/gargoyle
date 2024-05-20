@@ -1,0 +1,12 @@
+.{
+    .name = "breakout",
+    .version = "0.1.0",
+    .dependencies = .{
+        .gargoyle = .{ .path = "../../../gargoyle" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "../../..",
+    },
+}

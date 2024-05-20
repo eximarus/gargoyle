@@ -1,0 +1,12 @@
+.{
+    .name = "sandbox",
+    .version = "0.0.0",
+    .dependencies = .{
+        .gargoyle = .{ .path = "../" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

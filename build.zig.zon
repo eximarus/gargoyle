@@ -2,19 +2,44 @@
     .name = "gargoyle",
     .version = "0.1.0",
     .dependencies = .{
-        .mach_glfw = .{
-            .url = "https://pkg.machengine.org/mach-glfw/63da35e57c3695a787b927e69e4140eb74ffc234.tar.gz",
-            .hash = "1220fda87b59df6353864651cdd3943f1159d8d517a45cd67bed493fe6c0a0c78c17",
+        .sdl_win32 = .{
+            .path = "./lib/win32/SDL2-2.0.20",
         },
-        .mach_gpu = . {
-            .url = "https://pkg.machengine.org/mach-gpu/47244d1e216284a3389bd42af431f59f39a8f67e.tar.gz",
-            .hash = "1220e77a3e8386f57f73685026e43a17385ec8b3fb6e9873c9c793defd30651cfa09",
-        },
-        // .mach_gpu_dawn = . {
-            // .url = "https://pkg.machengine.org/mach-gpu-dawn/1cce80c9388069eeb42287c3c926c88ea7158101.tar.gz",
-            // .hash = "1220a841b94e39237d3fdb90903a439dde2544ff1c0f2ebfbfd5215b0d4beac2093a",
+        // .sdl = .{
+        //     .url = "https://github.com/andrewrk/SDL/archive/db4a162db2f6f59f737d03f441455dc9524d5793.tar.gz",
+        //     .hash = "1220c5360c9c71c215baa41b46ec18d0711059b48416a2b1cf96c7c2d87b2e8e4cf6",
         // },
-        .zmath = .{ .path = "libs/zmath" },
+        .box2d = .{
+            .url = "https://github.com/erincatto/box2c/archive/29adfcfb4dbc371a50e37d8e17b072d990ad7ae6.tar.gz",
+            .hash = "1220d5585357ae14c92268925417fb6e35a63a2f3b8a8ee8893aa8e74f980978680b",
+        },
+        .zigwin32 = .{
+            .url = "https://github.com/marlersoft/zigwin32/archive/aec51b5b77764bd474a3a8e074d011492eb7e5ed.tar.gz",
+            .hash = "12207523d070abaf0b3a078c58c8afbc5445f21e5779b7e2745514e34e0f90f10652",
+        },
+        .vma = .{
+            .url = "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/archive/v3.0.1.tar.gz",
+            .hash = "122001a961d2cec62488a87dbebf32e21b3315d514d0e29e7278d7821e1d047939b0",
+        },
+        .flecs = .{
+            .url = "https://github.com/SanderMertens/flecs/archive/v3.2.11.tar.gz",
+            .hash = "1220a066c54cb655cc8983e02cbdb7db66ccf354d9263408b519071250cc04c9739d",
+        },
+        .volk = .{
+            .url = "https://github.com/zeux/volk/archive/vulkan-sdk-1.3.280.0.tar.gz",
+            .hash = "12207914759d3c3dd9bcda8639285002a4c4182498875124b6f9e5cf58bcf4ef77b6",
+        },
+        .stb = .{
+            .url = "https://github.com/nothings/stb/archive/ae721c50eaf761660b4f90cc590453cdb0c2acd0.tar.gz",
+            .hash = "1220619c06a947cfacce985293ff16994db6058f2369d3c2ffcf9da60d7caa8b2f9b",
+        },
+        .imgui = .{
+            .path = "./submodules/cimgui",
+        },
+        .tinyobjloader = .{
+            .url = "https://github.com/syoyo/tinyobjloader-c/archive/97e752527ffcac637e8929744699a82ea28f8624.tar.gz",
+            .hash = "1220bef692ff3284c9694b8e56610fda47878fdd151775c853300a435b10a53b43fe",
+        },
     },
     .paths = .{
         "",
