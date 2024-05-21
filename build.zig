@@ -52,13 +52,14 @@ pub fn build(b: *std.Build) !void {
         app_name,
     );
     gargoyle_mod.addOptions("config", conf);
+    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/gradient.comp"));
 
     try linkVulkan(b, gargoyle_mod);
     linkVma(b, gargoyle_mod);
     linkSdl(b, gargoyle_mod);
     linkWin32(b, gargoyle_mod);
     linkStb(b, gargoyle_mod);
-    // linkImgui(b, gargoyle_mod);
+    linkImgui(b, gargoyle_mod);
     linkBox2d(b, gargoyle_mod);
 
     const app_lib = b.addSharedLibrary(.{
@@ -116,6 +117,26 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(&run_exe_unit_tests.step);
 }
 
+pub fn addGlslShader(
+    b: *std.Build,
+    obj: *std.Build.Module,
+    file: std.Build.LazyPath,
+) void {
+    const cmd = b.addSystemCommand(&.{ "glslangValidator", "-V", "-o" });
+    const out_file = cmd.addOutputFileArg(
+        b.fmt("{s}.spv", .{file.getDisplayName()}),
+    );
+    cmd.addFileArg(file);
+
+    for (obj.depending_steps.keys()) |comp| {
+        comp.step.dependOn(&cmd.step);
+    }
+
+    obj.addAnonymousImport(file.getDisplayName(), .{
+        .root_source_file = out_file,
+    });
+}
+
 fn linkWin32(b: *std.Build, obj: *std.Build.Module) void {
     const tag = obj.resolved_target.?.result.os.tag;
     if (tag != .windows) {
@@ -171,8 +192,6 @@ fn linkVulkan(b: *std.Build, obj: *std.Build.Module) !void {
         .flags = flags.items,
     });
 
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile(dep.path("volk.h"), "Volk").step);
-
     if (target.result.os.tag == .windows) {
         if (b.graph.env_map.get("VK_SDK_PATH")) |path| {
             obj.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{path}) catch @panic("OOM") });
@@ -218,19 +237,6 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
         const sdl_dep = b.dependency("sdl_win32", .{});
         lib.addIncludePath(sdl_dep.path("include"));
         lib.addLibraryPath(sdl_dep.path("lib"));
-
-        // if (b.graph.env_map.get("VK_SDK_PATH")) |path| {
-        //     lib.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(
-        //         b.allocator,
-        //         "{s}/lib",
-        //         .{path},
-        //     ) catch @panic("OOM") });
-        //     lib.addIncludePath(.{ .cwd_relative = std.fmt.allocPrint(
-        //         b.allocator,
-        //         "{s}/include",
-        //         .{path},
-        //     ) catch @panic("OOM") });
-        // }
     }
     lib.linkSystemLibrary("SDL2");
 
@@ -240,9 +246,15 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
     lib.addIncludePath(dep.path(""));
 
     const volk_dep = b.dependency("volk", .{});
+    const volk_dir = b.addInstallDirectory(.{
+        .install_dir = .{ .header = {} },
+        .install_subdir = "Volk",
+        .source_dir = volk_dep.path(""),
+        .include_extensions = &.{".h"},
+    });
 
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile(volk_dep.path("volk.h"), "Volk").step);
-    // lib.addIncludePath(volk_dep.path(""));
+    const p = b.getInstallPath(.{ .header = {} }, "");
+    lib.addIncludePath(.{ .path = p });
 
     lib.addCSourceFiles(.{
         .root = dep.path(""),
@@ -261,7 +273,6 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
         },
         .flags = &.{
             "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
-            // "-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES=",
             "-DIMGUI_IMPL_VULKAN_USE_VOLK=",
             if (target.result.os.tag == .windows)
                 "-DIMGUI_IMPL_API=extern \"C\" __declspec(dllexport)"
@@ -269,6 +280,8 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
                 "-DIMGUI_IMPL_API=extern \"C\" ",
         },
     });
+
+    lib.step.dependOn(&volk_dir.step);
 
     obj.linkLibrary(lib);
     obj.addCMacro("CIMGUI_USE_VULKAN", "");

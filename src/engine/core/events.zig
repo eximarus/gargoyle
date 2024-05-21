@@ -50,5 +50,6 @@ pub fn poll(handler: EventHandler) void {
             },
             else => {},
         }
+        _ = c.ImGui_ImplSDL2_ProcessEvent(&event);
     }
 }

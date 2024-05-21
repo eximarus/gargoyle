@@ -99,8 +99,3 @@ pub const DescriptorAllocator = struct {
         });
     }
 };
-// UID-VkShaderModuleCreateInfo-pCode-07912(ERROR / SPEC): msgNum: 979894520 - Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-07912 ] | MessageID = 0x3a6800f8 | vkCreateShaderModule(): pCreateInfo->pCode doesn't point to a SPIR-V module. The Vulkan spec states: If the VK_NV_glsl_shader extension is not enabled, pCode must be a pointer to SPIR-V code (https://vulkan.lunarg.com/doc/view/1.3.283.0/linux/1.3-extensions/vkspec.html#VUID-VkShaderModuleCreateInfo-pCode-07912)
-//     Objects: 0
-// VUID-VkShaderModuleCreateInfo-pCode-08737(ERROR / SPEC): msgNum: -1520283006 - Validation Error: [ VUID-VkShaderModuleCreateInfo-pCode-08737 ] | MessageID = 0xa5625282 | vkCreateShaderModule(): pCreateInfo->pCode (spirv-val produced an error):
-// Invalid SPIR-V magic number. The Vulkan spec states: If pCode is a pointer to SPIR-V code, pCode must adhere to the validation rules described by the Validation Rules within a Module section of the SPIR-V Environment appendix (https://vulkan.lunarg.com/doc/view/1.3.283.0/linux/1.3-extensions/vkspec.html#VUID-VkShaderModuleCreateInfo-pCode-08737)
-//     Objects: 0

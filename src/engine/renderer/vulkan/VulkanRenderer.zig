@@ -3,6 +3,7 @@ const config = @import("config");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
 const vma = @import("vma.zig");
+const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
@@ -61,8 +62,15 @@ draw_extent: c.VkExtent2D,
 draw_image_descriptors: vk.DescriptorSet,
 draw_image_descriptor_layout: vk.DescriptorSetLayout,
 
+compute_draw_shader: vk.ShaderModule,
 gradient_pipeline: vk.Pipeline,
 gradient_pipeline_layout: vk.PipelineLayout,
+
+imm_fence: vk.Fence,
+imm_command_buffer: vk.CommandBuffer,
+imm_command_pool: vk.CommandPool,
+
+imm_descriptor_pool: vk.DescriptorPool,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -184,6 +192,7 @@ pub fn init(
     try self.initSync();
     try self.initDescriptors(allocator);
     try self.initPipelines();
+    try self.initImgui(window);
 
     return self;
 }
@@ -323,8 +332,8 @@ fn initPipelines(self: *VulkanRenderer) !void {
         .setLayoutCount = 1,
     }, null);
 
-    const compute_draw_shader = try pipelines.loadShaderModule(
-        "../shaders/glsl/gradient.spv",
+    self.compute_draw_shader = try pipelines.loadShaderModule(
+        "shaders/glsl/gradient.comp",
         self.device,
     );
 
@@ -337,7 +346,7 @@ fn initPipelines(self: *VulkanRenderer) !void {
                 .stage = c.VkPipelineShaderStageCreateInfo{
                     .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                     .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
-                    .module = compute_draw_shader.handle,
+                    .module = self.compute_draw_shader.handle,
                     .pName = "main",
                 },
             },
@@ -416,7 +425,97 @@ fn transitionImage(
     });
 }
 
+fn initImgui(self: *VulkanRenderer, window: Window) !void {
+    const pool_sizes = [_]c.VkDescriptorPoolSize{
+        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount = 1000 },
+        .{ .type = c.VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount = 1000 },
+    };
+
+    self.imm_descriptor_pool = try self.device.createDescriptorPool(&.{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = c.VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+        .maxSets = 1000,
+        .poolSizeCount = pool_sizes.len,
+        .pPoolSizes = &pool_sizes,
+    }, null);
+
+    _ = c.igCreateContext(null);
+
+    _ = c.ImGui_ImplSDL2_InitForVulkan(window._sdl_window);
+
+    _ = imgui.ImGui_ImplVulkan_Init(&.{
+        .instance = self.instance.handle,
+        .physical_device = self.gpu.handle,
+        .device = self.device.handle,
+        .queue = self.graphics_queue.handle,
+        .descriptor_pool = self.imm_descriptor_pool.handle,
+        .min_image_count = 3,
+        .image_count = 3,
+        .msaa_samples = c.VK_SAMPLE_COUNT_1_BIT,
+        .use_dynamic_rendering = true,
+        .pipeline_rendering_create_info = .{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &[1]c.VkFormat{self.swapchain_image_format},
+        },
+    });
+
+    _ = imgui.ImGui_ImplVulkan_CreateFontsTexture();
+}
+
+fn renderingInfo(
+    render_extent: c.VkExtent2D,
+    color_attachment: *const c.VkRenderingAttachmentInfo,
+    depth_attachment: ?*const c.VkRenderingAttachmentInfo,
+) c.VkRenderingInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = c.VkRect2D{
+            .offset = c.VkOffset2D{ .x = 0, .y = 0 },
+            .extent = render_extent,
+        },
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = color_attachment,
+        .pDepthAttachment = depth_attachment,
+    };
+}
+
+fn renderImgui(
+    self: *VulkanRenderer,
+    cmd: vk.CommandBuffer,
+    target_image_view: vk.ImageView,
+) void {
+    cmd.beginRendering(&renderingInfo(
+        self.swapchain_extent,
+        &attachmentInfo(
+            target_image_view,
+            null,
+            c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        ),
+        null,
+    ));
+    imgui.ImGui_ImplVulkan_RenderDrawData(c.igGetDrawData(), cmd.handle, null);
+    cmd.endRendering();
+}
+
 pub fn render(self: *VulkanRenderer) !void {
+    imgui.ImGui_ImplVulkan_NewFrame();
+    c.ImGui_ImplSDL2_NewFrame();
+    c.igNewFrame();
+
+    c.igShowDemoWindow(null);
+    c.igRender();
+
     const frame = self.getCurrentFrame();
     const timeout = 1 * std.time.ns_per_s;
 
@@ -462,10 +561,23 @@ pub fn render(self: *VulkanRenderer) !void {
         &.{imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
     );
 
-    // TODO
-    // cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_COMPUTE, self.gradient_pipeline);
-    // cmd.bindDescriptorSets(c.VK_PIPELINE_BIND_POINT_COMPUTE, self.gradient_pipeline_layout, 0, 1, &self.draw_image_descriptors, 0, null);
-    // cmd.dispatch(std::ceil(self.draw_extent.width / 16.0), std::ceil(self.draw_extent.height / 16.0), 1);
+    frame.command_buffer.bindPipeline(
+        c.VK_PIPELINE_BIND_POINT_COMPUTE,
+        self.gradient_pipeline,
+    );
+    frame.command_buffer.bindDescriptorSets(
+        c.VK_PIPELINE_BIND_POINT_COMPUTE,
+        self.gradient_pipeline_layout,
+        0,
+        &.{self.draw_image_descriptors},
+        &.{},
+    );
+
+    frame.command_buffer.dispatch(
+        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.width)) / 16.0)),
+        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.height)) / 16.0)),
+        1,
+    );
 
     transitionImage(
         frame.command_buffer,
@@ -495,6 +607,18 @@ pub fn render(self: *VulkanRenderer) !void {
         frame.command_buffer,
         next_image,
         c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    );
+
+    self.renderImgui(
+        frame.command_buffer,
+        self.swapchain_image_views.items[swapchain_image_index],
+    );
+
+    transitionImage(
+        frame.command_buffer,
+        next_image,
+        c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     );
 
@@ -652,6 +776,21 @@ inline fn submitInfo(
     };
 }
 
+inline fn attachmentInfo(
+    view: vk.ImageView,
+    clear: ?*const c.VkClearValue,
+    layout: c.VkImageLayout,
+) c.VkRenderingAttachmentInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = view.handle,
+        .imageLayout = layout,
+        .loadOp = if (clear) |_| c.VK_ATTACHMENT_LOAD_OP_CLEAR else c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = if (clear) |value| value else std.mem.zeroes(c.VkClearValue),
+    };
+}
+
 pub fn onWindowResize(self: *VulkanRenderer, width: u32, height: u32) void {
     _ = self;
     _ = width;
@@ -670,10 +809,12 @@ fn destroySwapchain(self: *VulkanRenderer) void {
 pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
 
-    // TODO
-    // self.device.destroyShaderModule(self.computeDrawShader, null);
-    // self.device.destroyPipelineLayout(self.gradient_pipeline_layout, null);
-    // self.device.destroyPipeline(self.gradient_pipeline, null);
+    imgui.ImGui_ImplVulkan_Shutdown();
+    self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
+
+    self.device.destroyShaderModule(&self.compute_draw_shader, null);
+    self.device.destroyPipelineLayout(&self.gradient_pipeline_layout, null);
+    self.device.destroyPipeline(&self.gradient_pipeline, null);
 
     self.device.destroyImageView(&self.draw_image.image_view, null);
     _ = c.vmaDestroyImage(

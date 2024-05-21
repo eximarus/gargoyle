@@ -358,6 +358,15 @@ pub const Device = extern struct {
         return mod;
     }
 
+    pub inline fn destroyShaderModule(
+        self: Device,
+        shader: *ShaderModule,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        c.vkDestroyShaderModule.?(self.handle, shader.handle, allocator);
+        shader.handle = null;
+    }
+
     pub inline fn createPipelineLayout(
         self: Device,
         info: *const c.VkPipelineLayoutCreateInfo,
@@ -371,6 +380,15 @@ pub const Device = extern struct {
             &layout.handle,
         ));
         return layout;
+    }
+
+    pub inline fn destroyPipelineLayout(
+        self: Device,
+        layout: *PipelineLayout,
+        allocator: ?*c.VkAllocationCallbacks,
+    ) void {
+        c.vkDestroyPipelineLayout.?(self.handle, layout.handle, allocator);
+        layout.handle = null;
     }
 
     pub inline fn createComputePipelines(
@@ -389,6 +407,15 @@ pub const Device = extern struct {
             &pipeline.handle,
         ));
         return pipeline;
+    }
+
+    pub inline fn destroyPipeline(
+        self: Device,
+        pipeline: *Pipeline,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        c.vkDestroyPipeline.?(self.handle, pipeline.handle, allocator);
+        pipeline.handle = null;
     }
 
     pub inline fn createImageView(
@@ -815,60 +842,59 @@ pub const CommandBuffer = extern struct {
         c.vkCmdBlitImage2.?(self.handle, info);
     }
 
-    // c.vkCmdBindPipeline
-    // c.vkCmdSetViewport
-    // c.vkCmdSetScissor
-    // c.vkCmdSetLineWidth
-    // c.vkCmdSetDepthBias
-    // c.vkCmdSetBlendConstants
-    // c.vkCmdSetDepthBounds
-    // c.vkCmdSetStencilCompareMask
-    // c.vkCmdSetStencilWriteMask
-    // c.vkCmdSetStencilReference
+    pub inline fn bindPipeline(
+        self: CommandBuffer,
+        bind_point: c.VkPipelineBindPoint,
+        pipeline: Pipeline,
+    ) void {
+        c.vkCmdBindPipeline.?(self.handle, bind_point, pipeline.handle);
+    }
+
     // c.vkCmdBindDescriptorSets
-    // c.vkCmdBindIndexBuffer
-    // c.vkCmdBindVertexBuffer
-    // c.vkCmdDraw
-    // c.vkCmdDrawIndexed
-    // c.vkCmdDrawIndirect
-    // c.vkCmdDispatch
-    // c.vkCmdDispatchIndirect
-    // c.vkCmdCopyBuffer
-    // c.vkCmdCopyImage
-    // c.vkCmdBlitImage
-    // c.vkCmdCopyBufferToImage
-    // c.vkCmdCopyImageToBuffer
-    // c.vkCmdCopyUpdateBuffer
-    // c.vkCmdFillBuffer
-    // c.vkCmdClearDepthStencilImage
-    // c.vkCmdResolveImage
-    // c.vkCmdSetEvent
-    // c.vkCmdResetEvent
-    // c.vkCmdWaitEvents
-    // c.vkCmdBeginQuery
-    // c.vkCmdEndQuery
-    // c.vkCmdResetQueryPool
-    // c.vkCmdWriteTimestamp
-    // c.vkCmdCopyQueryPoolResults
-    // c.vkCmdPushConstants
-    // c.vkCmdBeginRenderPass
-    // c.vkCmdNextSubpass
-    // c.vkCmdEndRenderPass
-    // c.vkCmdExecuteCommands
-    // c.vkCmdDebugMarkerBeginEXT
-    // c.vkCmdDebugMarkerEndEXT
-    // c.vkCmdDebugMarkerInsertEXT
-    // c.vkCmdDrawIndirectCountAMD
-    // c.vkCmdDrawIndexedIndirectCountAMD
-    // c.vkCmdProcessCommandsNVX
-    // c.vkCmdReserveSpaceForCommandsNVX
-    // c.vkCmdSetDeviceMaskKHX
-    // c.vkCmdDispatchBaseKHX
-    // c.vkCmdPushDescriptorSetWithTemplateKHR
-    // c.vkCmdSetViewportWScalingNV
-    // c.vkCmdSetDiscardRectangleEXT
-    // c.vkCmdSetSampleLocationsEXT
-    // c.vkCmdWriteBufferMarkerAMD
+    pub inline fn bindDescriptorSets(
+        self: CommandBuffer,
+        bind_point: c.VkPipelineBindPoint,
+        layout: PipelineLayout,
+        first_set: u32,
+        descriptor_sets: []const DescriptorSet,
+        dynamic_offsets: []const u32,
+    ) void {
+        c.vkCmdBindDescriptorSets.?(
+            self.handle,
+            bind_point,
+            layout.handle,
+            first_set,
+            @intCast(descriptor_sets.len),
+            @ptrCast(descriptor_sets.ptr),
+            @intCast(dynamic_offsets.len),
+            @ptrCast(dynamic_offsets.ptr),
+        );
+    }
+
+    pub inline fn dispatch(
+        self: CommandBuffer,
+        group_count_x: u32,
+        group_count_y: u32,
+        group_count_z: u32,
+    ) void {
+        c.vkCmdDispatch.?(
+            self.handle,
+            group_count_x,
+            group_count_y,
+            group_count_z,
+        );
+    }
+
+    pub inline fn beginRendering(
+        self: CommandBuffer,
+        info: *const c.VkRenderingInfo,
+    ) void {
+        c.vkCmdBeginRendering.?(self.handle, info);
+    }
+
+    pub inline fn endRendering(self: CommandBuffer) void {
+        c.vkCmdEndRendering.?(self.handle);
+    }
 };
 
 pub const SurfaceKHR = extern struct {
