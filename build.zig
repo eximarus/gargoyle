@@ -81,7 +81,17 @@ pub fn build(b: *std.Build) !void {
     });
     app_lib.linkLibC();
 
-    b.installArtifact(app_lib);
+    b.getInstallStep().dependOn(&b.addInstallArtifact(
+        app_lib,
+        .{ .dest_dir = .{ .override = .{ .custom = "Publish" } } },
+    ).step);
+
+    // const publish_dir = b.addInstallDirectory(.{
+    //     .install_dir = .{ .prefix = {} },
+    //     .install_subdir = "Publish",
+    //     .source_dir = b.path(""),
+    //     .include_extensions = &.{".h"},
+    // });
 
     const exe = b.addExecutable(.{
         .name = app_name,
@@ -98,7 +108,10 @@ pub fn build(b: *std.Build) !void {
 
     exe.want_lto = false; // TODO zig bug
 
-    b.installArtifact(exe);
+    b.getInstallStep().dependOn(&b.addInstallArtifact(
+        exe,
+        .{ .dest_dir = .{ .override = .{ .custom = "Publish" } } },
+    ).step);
 
     const run_exe = b.addRunArtifact(exe);
     const run_step = b.step("run", "Run the application");
@@ -148,17 +161,15 @@ fn linkWin32(b: *std.Build, obj: *std.Build.Module) void {
     obj.addImport("zigwin32", win32_module);
 }
 
-fn linkSdl(b: *std.Build, obj: *std.Build.Module) void {
-    obj.link_libc = true;
-
-    if (obj.resolved_target.?.result.os.tag == .windows) {
+fn linkSdl(b: *std.Build, mod: *std.Build.Module) void {
+    mod.link_libc = true;
+    if (mod.resolved_target.?.result.os.tag == .windows) {
         const dep = b.dependency("sdl_win32", .{});
-        obj.addIncludePath(dep.path("include"));
-        obj.addLibraryPath(dep.path("lib"));
-
-        obj.linkSystemLibrary("SDL2", .{ .use_pkg_config = .no });
+        mod.addIncludePath(dep.path("include"));
+        mod.addLibraryPath(dep.path("lib/x64"));
+        mod.linkSystemLibrary("SDL2", .{ .use_pkg_config = .no });
     } else {
-        obj.linkSystemLibrary("SDL2", .{});
+        mod.linkSystemLibrary("SDL2", .{});
     }
 }
 
@@ -192,11 +203,22 @@ fn linkVulkan(b: *std.Build, obj: *std.Build.Module) !void {
         .flags = flags.items,
     });
 
-    if (target.result.os.tag == .windows) {
-        if (b.graph.env_map.get("VK_SDK_PATH")) |path| {
-            obj.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{path}) catch @panic("OOM") });
-            obj.addIncludePath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/include", .{path}) catch @panic("OOM") });
-        }
+    includeVulkan(b, obj);
+}
+
+fn includeVulkan(b: *std.Build, obj: *std.Build.Module) void {
+    const target = obj.resolved_target.?;
+    if (target.result.os.tag != .windows) {
+        return;
+    }
+
+    if (b.graph.env_map.get("VK_SDK_PATH")) |path| {
+        obj.addIncludePath(.{
+            .cwd_relative = b.pathJoin(&.{ path, "Include" }),
+        });
+    } else {
+        // TODO fallback copy in project repo
+        std.log.warn("VULKAN SDK NOT FOUND\n", .{});
     }
 }
 
@@ -233,12 +255,7 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
     });
     lib.linkLibCpp();
 
-    if (target.result.os.tag == .windows) {
-        const sdl_dep = b.dependency("sdl_win32", .{});
-        lib.addIncludePath(sdl_dep.path("include"));
-        lib.addLibraryPath(sdl_dep.path("lib"));
-    }
-    lib.linkSystemLibrary("SDL2");
+    linkSdl(b, &lib.root_module);
 
     lib.addIncludePath(dep.path("imgui"));
     lib.addIncludePath(dep.path(""));
@@ -255,6 +272,8 @@ fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
 
     const p = b.getInstallPath(.{ .header = {} }, "");
     lib.addIncludePath(.{ .path = p });
+
+    includeVulkan(b, &lib.root_module);
 
     lib.addCSourceFiles(.{
         .root = dep.path(""),

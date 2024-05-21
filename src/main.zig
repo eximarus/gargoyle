@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const config = @import("config");
 const g = @import("gargoyle");
 const Engine = g.Engine;
@@ -10,15 +11,17 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var self_dir_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const self_dir = try std.fs.selfExeDirPath(&self_dir_buf);
-    const lib_path = try std.fs.path.join(allocator, &[_][]const u8{
-        self_dir,
-        "..",
-        "lib",
-        config.app_lib_file,
-    });
-    defer allocator.free(lib_path);
+    const lib_path = if (builtin.os.tag == .windows)
+        config.app_lib_file
+    else blk: {
+        var self_dir_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const self_dir = try std.fs.selfExeDirPath(&self_dir_buf);
+        const p = try std.fs.path.join(allocator, &[_][]const u8{
+            self_dir,
+            config.app_lib_file,
+        });
+        break :blk p;
+    };
 
     var lib = AppLib.init(lib_path);
     var symbols = try lib.load();
