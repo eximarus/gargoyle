@@ -534,7 +534,7 @@ pub const Device = extern struct {
 
     pub inline fn destroyDescriptorPool(
         self: Device,
-        pool: DescriptorPool,
+        pool: *DescriptorPool,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
         c.vkDestroyDescriptorPool.?(
@@ -542,6 +542,7 @@ pub const Device = extern struct {
             pool.handle,
             allocator,
         );
+        pool.handle = null;
     }
 
     pub inline fn allocateDescriptorSet(
@@ -606,6 +607,15 @@ pub const Device = extern struct {
             &layout.handle,
         ));
         return layout;
+    }
+
+    pub inline fn destroyDescriptorSetLayout(
+        self: Device,
+        layout: *DescriptorSetLayout,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        c.vkDestroyDescriptorSetLayout.?(self.handle, layout.handle, allocator);
+        layout.handle = null;
     }
 
     pub inline fn updateDescriptorSets(

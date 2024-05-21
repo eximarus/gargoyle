@@ -12,7 +12,6 @@ pub fn main() !void {
 
     var self_dir_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const self_dir = try std.fs.selfExeDirPath(&self_dir_buf);
-    std.debug.print("{s}", .{self_dir});
     const lib_path = try std.fs.path.join(allocator, &[_][]const u8{
         self_dir,
         "..",

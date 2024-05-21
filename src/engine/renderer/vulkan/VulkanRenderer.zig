@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("config");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
+const vkinit = @import("vkinit.zig");
 const vma = @import("vma.zig");
 const imgui = @import("imgui.zig");
 const common = @import("common.zig");
@@ -165,7 +166,7 @@ pub fn init(
 
     _ = c.vmaCreateImage(
         self.vma_allocator,
-        &imageCreateInfo(
+        &vkinit.imageCreateInfo(
             self.draw_image.image_format,
             draw_image_usages,
             draw_image_extent,
@@ -180,7 +181,7 @@ pub fn init(
     );
 
     self.draw_image.image_view = try self.device.createImageView(
-        &imageViewCreateInfo(
+        &vkinit.imageViewCreateInfo(
             self.draw_image.image_format,
             self.draw_image.image,
             c.VK_IMAGE_ASPECT_COLOR_BIT,
@@ -355,43 +356,15 @@ fn initPipelines(self: *VulkanRenderer) !void {
     );
 }
 
-inline fn fenceCreateInfo(flags: c.VkFenceCreateFlags) c.VkFenceCreateInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .flags = flags,
-    };
-}
-
-inline fn semaphoreCreateInfo(
-    flags: c.VkSemaphoreCreateFlags,
-) c.VkSemaphoreCreateInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .flags = flags,
-    };
-}
-
 fn initSync(self: *VulkanRenderer) !void {
-    const fence_create_info = fenceCreateInfo(c.VK_FENCE_CREATE_SIGNALED_BIT);
-    const sempahore_create_info = semaphoreCreateInfo(0);
+    const fence_create_info = vkinit.fenceCreateInfo(c.VK_FENCE_CREATE_SIGNALED_BIT);
+    const sempahore_create_info = vkinit.semaphoreCreateInfo(0);
 
     for (&self.frames) |*frame| {
         frame.render_fence = try self.device.createFence(&fence_create_info, null);
         frame.swapchain_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
         frame.render_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
     }
-}
-
-inline fn imageSubresourceRange(
-    aspectMask: c.VkImageAspectFlags,
-) c.VkImageSubresourceRange {
-    return .{
-        .aspectMask = aspectMask,
-        .baseMipLevel = 0,
-        .levelCount = c.VK_REMAINING_MIP_LEVELS,
-        .baseArrayLayer = 0,
-        .layerCount = c.VK_REMAINING_ARRAY_LAYERS,
-    };
 }
 
 fn transitionImage(
@@ -414,7 +387,7 @@ fn transitionImage(
             .oldLayout = current_layout,
             .newLayout = new_layout,
 
-            .subresourceRange = imageSubresourceRange(
+            .subresourceRange = vkinit.imageSubresourceRange(
                 if (new_layout == c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
                     c.VK_IMAGE_ASPECT_DEPTH_BIT
                 else
@@ -472,32 +445,14 @@ fn initImgui(self: *VulkanRenderer, window: Window) !void {
     _ = imgui.ImGui_ImplVulkan_CreateFontsTexture();
 }
 
-fn renderingInfo(
-    render_extent: c.VkExtent2D,
-    color_attachment: *const c.VkRenderingAttachmentInfo,
-    depth_attachment: ?*const c.VkRenderingAttachmentInfo,
-) c.VkRenderingInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = c.VkRect2D{
-            .offset = c.VkOffset2D{ .x = 0, .y = 0 },
-            .extent = render_extent,
-        },
-        .layerCount = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = color_attachment,
-        .pDepthAttachment = depth_attachment,
-    };
-}
-
 fn renderImgui(
     self: *VulkanRenderer,
     cmd: vk.CommandBuffer,
     target_image_view: vk.ImageView,
 ) void {
-    cmd.beginRendering(&renderingInfo(
+    cmd.beginRendering(&vkinit.renderingInfo(
         self.swapchain_extent,
-        &attachmentInfo(
+        &vkinit.attachmentInfo(
             target_image_view,
             null,
             c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -558,7 +513,7 @@ pub fn render(self: *VulkanRenderer) !void {
                 0.0,
             },
         },
-        &.{imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
+        &.{vkinit.imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
     );
 
     frame.command_buffer.bindPipeline(
@@ -624,18 +579,18 @@ pub fn render(self: *VulkanRenderer) !void {
 
     try vk.check(frame.command_buffer.end());
 
-    const cmd_info = commandBufferSubmitInfo(frame.command_buffer);
-    const wait_info = sempahoreSubmitInfo(
+    const cmd_info = vkinit.commandBufferSubmitInfo(frame.command_buffer);
+    const wait_info = vkinit.sempahoreSubmitInfo(
         frame.swapchain_semaphore,
         c.VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
     );
 
-    const signal_info = sempahoreSubmitInfo(
+    const signal_info = vkinit.sempahoreSubmitInfo(
         frame.render_semaphore,
         c.VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
     );
 
-    const submit = submitInfo(&.{cmd_info}, &.{signal_info}, &.{wait_info});
+    const submit = vkinit.submitInfo(&.{cmd_info}, &.{signal_info}, &.{wait_info});
     try vk.check(self.graphics_queue.submit2(&.{submit}, frame.render_fence));
 
     try vk.check(self.graphics_queue.presentKHR(&.{
@@ -699,98 +654,6 @@ inline fn copyImageToImage(
     });
 }
 
-inline fn imageCreateInfo(
-    format: c.VkFormat,
-    usage_flags: c.VkImageUsageFlags,
-    extent: c.VkExtent3D,
-) c.VkImageCreateInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = c.VK_IMAGE_TYPE_2D,
-        .format = format,
-        .extent = extent,
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = c.VK_SAMPLE_COUNT_1_BIT,
-        .tiling = c.VK_IMAGE_TILING_OPTIMAL,
-        .usage = usage_flags,
-    };
-}
-
-inline fn imageViewCreateInfo(
-    format: c.VkFormat,
-    image: vk.Image,
-    aspect_flags: c.VkImageAspectFlags,
-) c.VkImageViewCreateInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
-        .image = image.handle,
-        .format = format,
-        .subresourceRange = .{
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-            .aspectMask = aspect_flags,
-        },
-    };
-}
-
-inline fn commandBufferSubmitInfo(
-    cmd: vk.CommandBuffer,
-) c.VkCommandBufferSubmitInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        .commandBuffer = cmd.handle,
-        .deviceMask = 0,
-    };
-}
-
-inline fn sempahoreSubmitInfo(
-    semaphore: vk.Semaphore,
-    stage_mask: c.VkPipelineStageFlags2,
-) c.VkSemaphoreSubmitInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = semaphore.handle,
-        .stageMask = stage_mask,
-        .deviceIndex = 0,
-        .value = 1,
-    };
-}
-
-inline fn submitInfo(
-    cmd_buffer_infos: []const c.VkCommandBufferSubmitInfo,
-    signal_semaphore_infos: []const c.VkSemaphoreSubmitInfo,
-    wait_semaphore_infos: []const c.VkSemaphoreSubmitInfo,
-) c.VkSubmitInfo2 {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .waitSemaphoreInfoCount = @intCast(wait_semaphore_infos.len),
-        .pWaitSemaphoreInfos = @ptrCast(wait_semaphore_infos.ptr),
-        .signalSemaphoreInfoCount = @intCast(signal_semaphore_infos.len),
-        .pSignalSemaphoreInfos = @ptrCast(signal_semaphore_infos.ptr),
-        .commandBufferInfoCount = @intCast(cmd_buffer_infos.len),
-        .pCommandBufferInfos = @ptrCast(cmd_buffer_infos.ptr),
-    };
-}
-
-inline fn attachmentInfo(
-    view: vk.ImageView,
-    clear: ?*const c.VkClearValue,
-    layout: c.VkImageLayout,
-) c.VkRenderingAttachmentInfo {
-    return .{
-        .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = view.handle,
-        .imageLayout = layout,
-        .loadOp = if (clear) |_| c.VK_ATTACHMENT_LOAD_OP_CLEAR else c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = if (clear) |value| value else std.mem.zeroes(c.VkClearValue),
-    };
-}
-
 pub fn onWindowResize(self: *VulkanRenderer, width: u32, height: u32) void {
     _ = self;
     _ = width;
@@ -810,7 +673,10 @@ pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
 
     imgui.ImGui_ImplVulkan_Shutdown();
-    self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
+    self.device.destroyDescriptorPool(&self.imm_descriptor_pool, null);
+
+    self.device.destroyDescriptorSetLayout(&self.draw_image_descriptor_layout, null);
+    self.device.destroyDescriptorPool(&self.global_descriptor_allocator.pool, null);
 
     self.device.destroyShaderModule(&self.compute_draw_shader, null);
     self.device.destroyPipelineLayout(&self.gradient_pipeline_layout, null);
