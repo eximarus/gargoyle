@@ -8,6 +8,7 @@ const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
+const math = @import("../../math/math.zig");
 
 const DescriptorLayoutBuilder = descriptors.DescriptorLayoutBuilder;
 const DescriptorAllocator = descriptors.DescriptorAllocator;
@@ -34,6 +35,20 @@ const AllocatedImage = struct {
     allocation: c.VmaAllocation,
     image_extent: c.VkExtent3D,
     image_format: c.VkFormat,
+};
+
+const ComputePushConstants = struct {
+    data1: math.Vec4,
+    data2: math.Vec4,
+    data3: math.Vec4,
+    data4: math.Vec4,
+};
+
+const ComputeEffect = struct {
+    name: CString,
+    pipeline: vk.Pipeline,
+    layout: vk.PipelineLayout,
+    data: ComputePushConstants,
 };
 
 instance: vk.Instance,
@@ -63,8 +78,6 @@ draw_extent: c.VkExtent2D,
 draw_image_descriptors: vk.DescriptorSet,
 draw_image_descriptor_layout: vk.DescriptorSetLayout,
 
-compute_draw_shader: vk.ShaderModule,
-gradient_pipeline: vk.Pipeline,
 gradient_pipeline_layout: vk.PipelineLayout,
 
 imm_fence: vk.Fence,
@@ -72,6 +85,9 @@ imm_command_buffer: vk.CommandBuffer,
 imm_command_pool: vk.CommandPool,
 
 imm_descriptor_pool: vk.DescriptorPool,
+
+background_effects: std.ArrayList(ComputeEffect),
+current_background_effect: i32 = 0,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -188,6 +204,9 @@ pub fn init(
         ),
         null,
     );
+
+    self.current_background_effect = 0;
+    self.background_effects = std.ArrayList(ComputeEffect).init(allocator);
 
     try self.initCommands();
     try self.initSync();
@@ -331,29 +350,74 @@ fn initPipelines(self: *VulkanRenderer) !void {
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pSetLayouts = &self.draw_image_descriptor_layout.handle,
         .setLayoutCount = 1,
+
+        .pPushConstantRanges = &[1]c.VkPushConstantRange{
+            .{
+                .offset = 0,
+                .size = @sizeOf(ComputePushConstants),
+                .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            },
+        },
+        .pushConstantRangeCount = 1,
     }, null);
 
-    self.compute_draw_shader = try pipelines.loadShaderModule(
+    var gradient_shader = try pipelines.loadShaderModule(
         "shaders/glsl/gradient.comp",
         self.device,
     );
 
-    self.gradient_pipeline = try self.device.createComputePipelines(
-        null,
-        &.{
-            c.VkComputePipelineCreateInfo{
-                .sType = c.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                .layout = self.gradient_pipeline_layout.handle,
-                .stage = c.VkPipelineShaderStageCreateInfo{
-                    .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                    .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
-                    .module = self.compute_draw_shader.handle,
-                    .pName = "main",
-                },
-            },
+    var compute_pipeline_create_info =
+        c.VkComputePipelineCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .layout = self.gradient_pipeline_layout.handle,
+        .stage = c.VkPipelineShaderStageCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = gradient_shader.handle,
+            .pName = "main",
         },
-        null,
-    );
+    };
+
+    const gradient = ComputeEffect{
+        .layout = self.gradient_pipeline_layout,
+        .name = "gradient",
+        .data = .{
+            .data1 = math.vec4(1, 0, 0, 1),
+            .data2 = math.vec4(0, 0, 1, 1),
+            .data3 = undefined,
+            .data4 = undefined,
+        },
+        .pipeline = try self.device.createComputePipelines(
+            null,
+            &.{compute_pipeline_create_info},
+            null,
+        ),
+    };
+
+    var sky_shader = try pipelines.loadShaderModule("shaders/glsl/sky.comp", self.device);
+    compute_pipeline_create_info.stage.module = sky_shader.handle;
+
+    const sky = ComputeEffect{
+        .layout = self.gradient_pipeline_layout,
+        .name = "sky",
+        .data = .{
+            .data1 = math.vec4(0.1, 0.2, 0.4, 0.97),
+            .data2 = undefined,
+            .data3 = undefined,
+            .data4 = undefined,
+        },
+        .pipeline = try self.device.createComputePipelines(
+            null,
+            &.{compute_pipeline_create_info},
+            null,
+        ),
+    };
+
+    try self.background_effects.append(gradient);
+    try self.background_effects.append(sky);
+
+    self.device.destroyShaderModule(&gradient_shader, null);
+    self.device.destroyShaderModule(&sky_shader, null);
 }
 
 fn initSync(self: *VulkanRenderer) !void {
@@ -468,7 +532,29 @@ pub fn render(self: *VulkanRenderer) !void {
     c.ImGui_ImplSDL2_NewFrame();
     c.igNewFrame();
 
-    c.igShowDemoWindow(null);
+    if (c.igBegin("Background", null, 0)) {
+        var selected = &self.background_effects.items[
+            @intCast(self.current_background_effect)
+        ];
+        c.igText("Selected effect: ", selected.name);
+
+        _ = c.igSliderInt(
+            "Effect Index",
+            &self.current_background_effect,
+            0,
+            @intCast(self.background_effects.items.len - 1),
+            null,
+            0,
+        );
+
+        _ = c.igInputFloat4("data1", @ptrCast(&selected.data.data1), null, 0);
+        _ = c.igInputFloat4("data2", @ptrCast(&selected.data.data2), null, 0);
+        _ = c.igInputFloat4("data3", @ptrCast(&selected.data.data3), null, 0);
+        _ = c.igInputFloat4("data4", @ptrCast(&selected.data.data4), null, 0);
+
+        c.igEnd();
+    }
+
     c.igRender();
 
     const frame = self.getCurrentFrame();
@@ -516,9 +602,13 @@ pub fn render(self: *VulkanRenderer) !void {
         &.{vkinit.imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
     );
 
+    const effect = self.background_effects.items[
+        @intCast(self.current_background_effect)
+    ];
+
     frame.command_buffer.bindPipeline(
         c.VK_PIPELINE_BIND_POINT_COMPUTE,
-        self.gradient_pipeline,
+        effect.pipeline,
     );
     frame.command_buffer.bindDescriptorSets(
         c.VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -526,6 +616,14 @@ pub fn render(self: *VulkanRenderer) !void {
         0,
         &.{self.draw_image_descriptors},
         &.{},
+    );
+
+    frame.command_buffer.pushConstants(
+        self.gradient_pipeline_layout,
+        c.VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        @sizeOf(ComputePushConstants),
+        &effect.data,
     );
 
     frame.command_buffer.dispatch(
@@ -678,9 +776,11 @@ pub fn deinit(self: *VulkanRenderer) void {
     self.device.destroyDescriptorSetLayout(&self.draw_image_descriptor_layout, null);
     self.device.destroyDescriptorPool(&self.global_descriptor_allocator.pool, null);
 
-    self.device.destroyShaderModule(&self.compute_draw_shader, null);
     self.device.destroyPipelineLayout(&self.gradient_pipeline_layout, null);
-    self.device.destroyPipeline(&self.gradient_pipeline, null);
+    for (self.background_effects.items) |*effect| {
+        self.device.destroyPipeline(&effect.pipeline, null);
+    }
+    self.background_effects.deinit();
 
     self.device.destroyImageView(&self.draw_image.image_view, null);
     _ = c.vmaDestroyImage(

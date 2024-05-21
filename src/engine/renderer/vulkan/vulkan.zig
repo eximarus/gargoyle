@@ -905,6 +905,24 @@ pub const CommandBuffer = extern struct {
     pub inline fn endRendering(self: CommandBuffer) void {
         c.vkCmdEndRendering.?(self.handle);
     }
+
+    pub inline fn pushConstants(
+        self: CommandBuffer,
+        layout: PipelineLayout,
+        stage_flags: c.VkShaderStageFlags,
+        offset: u32,
+        size: u32,
+        values: ?*const anyopaque,
+    ) void {
+        c.vkCmdPushConstants.?(
+            self.handle,
+            layout.handle,
+            stage_flags,
+            offset,
+            size,
+            values,
+        );
+    }
 };
 
 pub const SurfaceKHR = extern struct {

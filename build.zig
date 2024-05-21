@@ -53,6 +53,7 @@ pub fn build(b: *std.Build) !void {
     );
     gargoyle_mod.addOptions("config", conf);
     addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/gradient.comp"));
+    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/sky.comp"));
 
     try linkVulkan(b, gargoyle_mod);
     linkVma(b, gargoyle_mod);
@@ -85,13 +86,6 @@ pub fn build(b: *std.Build) !void {
         app_lib,
         .{ .dest_dir = .{ .override = .{ .custom = "Publish" } } },
     ).step);
-
-    // const publish_dir = b.addInstallDirectory(.{
-    //     .install_dir = .{ .prefix = {} },
-    //     .install_subdir = "Publish",
-    //     .source_dir = b.path(""),
-    //     .include_extensions = &.{".h"},
-    // });
 
     const exe = b.addExecutable(.{
         .name = app_name,

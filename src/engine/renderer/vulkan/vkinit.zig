@@ -88,7 +88,7 @@ pub inline fn attachmentInfo(
         .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = view.handle,
         .imageLayout = layout,
-        .loadOp = if (clear) |_| c.VK_ATTACHMENT_LOAD_OP_CLEAR else c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .loadOp = if (clear) |_| c.VK_ATTACHMENT_LOAD_OP_CLEAR else c.VK_ATTACHMENT_LOAD_OP_LOAD,
         .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = if (clear) |value| value else std.mem.zeroes(c.VkClearValue),
     };
