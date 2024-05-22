@@ -54,6 +54,8 @@ pub fn build(b: *std.Build) !void {
     gargoyle_mod.addOptions("config", conf);
     addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/gradient.comp"));
     addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/sky.comp"));
+    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/colored_triangle.vert"));
+    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/colored_triangle.frag"));
 
     try linkVulkan(b, gargoyle_mod);
     linkVma(b, gargoyle_mod);

@@ -43,6 +43,11 @@ pub const App = struct {
         std.log.info("sandbox reload\n", .{});
     }
 
+    pub fn onGui(self: *App) anyerror!void {
+        _ = self;
+        // std.log.info("sandbox onGui\n", .{});
+    }
+
     pub fn deinit(self: *App) void {
         _ = self;
         std.log.info("sandbox deinit\n", .{});

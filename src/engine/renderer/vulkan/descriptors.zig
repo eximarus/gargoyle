@@ -93,9 +93,9 @@ pub const DescriptorAllocator = struct {
     ) !vk.DescriptorSet {
         return device.allocateDescriptorSet(&.{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = self.pool.handle,
+            .descriptorPool = self.pool,
             .descriptorSetCount = 1,
-            .pSetLayouts = &layout.handle,
+            .pSetLayouts = &layout,
         });
     }
 };

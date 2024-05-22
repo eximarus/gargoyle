@@ -12,8 +12,8 @@ pub inline fn createInstance(
     allocator: ?*const c.VkAllocationCallbacks,
 ) !Instance {
     var self: Instance = undefined;
-    try vkCheck(c.vkCreateInstance.?(create_info, allocator, &self.handle));
-    c.volkLoadInstance(self.handle);
+    try vkCheck(c.vkCreateInstance.?(create_info, allocator, @ptrCast(&self)));
+    c.volkLoadInstance(self.handle());
     return self;
 }
 
@@ -69,8 +69,10 @@ pub fn enumerateInstanceLayerProperties(
     return supported_validation_layers;
 }
 
-pub const Instance = struct {
-    handle: c.VkInstance = null,
+pub const Instance = *align(@alignOf(c.VkInstance)) opaque {
+    pub inline fn handle(self: Instance) c.VkInstance {
+        return @ptrCast(self);
+    }
 
     pub inline fn enumeratePhysicalDevices(
         self: Instance,
@@ -79,7 +81,7 @@ pub const Instance = struct {
         const vkEnumeratePhysicalDevices = c.vkEnumeratePhysicalDevices.?;
 
         var gpu_count: u32 = 0;
-        try vkCheck(vkEnumeratePhysicalDevices(self.handle, &gpu_count, null));
+        try vkCheck(vkEnumeratePhysicalDevices(self.handle(), &gpu_count, null));
 
         if (gpu_count < 1) {
             return error.VulkanNoSuitablePhysicalDevice;
@@ -87,7 +89,7 @@ pub const Instance = struct {
 
         const gpus = try allocator.alloc(PhysicalDevice, gpu_count);
         try vkCheck(vkEnumeratePhysicalDevices(
-            self.handle,
+            self.handle(),
             &gpu_count,
             @ptrCast(gpus.ptr),
         ));
@@ -96,11 +98,10 @@ pub const Instance = struct {
 
     pub inline fn destroySurfaceKHR(
         self: Instance,
-        surface: *SurfaceKHR,
+        surface: SurfaceKHR,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySurfaceKHR.?(self.handle, surface.handle, allocator);
-        surface.handle = null;
+        c.vkDestroySurfaceKHR.?(self.handle(), surface, allocator);
     }
 
     pub inline fn createDebugUtilsMessengerEXT(
@@ -111,10 +112,10 @@ pub const Instance = struct {
         if (c.vkCreateDebugUtilsMessengerEXT) |func| {
             var messenger: DebugUtilsMessengerEXT = undefined;
             try vkCheck(func(
-                self.handle,
+                self.handle(),
                 info,
                 allocator,
-                &messenger.handle,
+                &messenger,
             ));
             return messenger;
         }
@@ -123,33 +124,32 @@ pub const Instance = struct {
 
     pub inline fn destroyDebugUtilsMessengerEXT(
         self: Instance,
-        debug_messenger: *DebugUtilsMessengerEXT,
+        debug_messenger: DebugUtilsMessengerEXT,
         allocator: ?*const c.VkAllocationCallbacks,
     ) !void {
         if (c.vkDestroyDebugUtilsMessengerEXT) |func| {
             func(
-                self.handle,
-                debug_messenger.handle,
+                self.handle(),
+                debug_messenger,
                 allocator,
             );
-
-            debug_messenger.handle = null;
         } else {
             return Error.ExtensionNotPresent;
         }
     }
 
     pub inline fn destroy(
-        self: *Instance,
+        self: Instance,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyInstance.?(self.handle, allocator);
-        self.handle = null;
+        c.vkDestroyInstance.?(self.handle(), allocator);
     }
 };
 
-pub const PhysicalDevice = extern struct {
-    handle: c.VkPhysicalDevice = null,
+pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
+    pub inline fn handle(self: PhysicalDevice) c.VkPhysicalDevice {
+        return @ptrCast(self);
+    }
 
     pub inline fn getQueueFamilyProperties(
         self: PhysicalDevice,
@@ -157,7 +157,7 @@ pub const PhysicalDevice = extern struct {
     ) ![]c.VkQueueFamilyProperties {
         var queue_family_count: u32 = 0;
         c.vkGetPhysicalDeviceQueueFamilyProperties.?(
-            self.handle,
+            self.handle(),
             &queue_family_count,
             null,
         );
@@ -172,7 +172,7 @@ pub const PhysicalDevice = extern struct {
             queue_family_count,
         );
         c.vkGetPhysicalDeviceQueueFamilyProperties.?(
-            self.handle,
+            self.handle(),
             &queue_family_count,
             queue_family_properties.ptr,
         );
@@ -185,7 +185,7 @@ pub const PhysicalDevice = extern struct {
     ) ![]const c.VkExtensionProperties {
         var device_extension_count: u32 = undefined;
         try vkCheck(c.vkEnumerateDeviceExtensionProperties.?(
-            self.handle,
+            self.handle(),
             null,
             &device_extension_count,
             null,
@@ -196,7 +196,7 @@ pub const PhysicalDevice = extern struct {
             device_extension_count,
         );
         try vkCheck(c.vkEnumerateDeviceExtensionProperties.?(
-            self.handle,
+            self.handle(),
             null,
             &device_extension_count,
             device_extensions.ptr,
@@ -211,9 +211,9 @@ pub const PhysicalDevice = extern struct {
     ) !bool {
         var supports_present: c.VkBool32 = undefined;
         try vkCheck(c.vkGetPhysicalDeviceSurfaceSupportKHR.?(
-            self.handle,
+            self.handle(),
             i,
-            surface.handle,
+            surface,
             &supports_present,
         ));
         return supports_present != 0;
@@ -223,7 +223,7 @@ pub const PhysicalDevice = extern struct {
         self: PhysicalDevice,
     ) c.VkPhysicalDeviceProperties {
         var props: c.VkPhysicalDeviceProperties = undefined;
-        c.vkGetPhysicalDeviceProperties.?(self.handle, @ptrCast(&props));
+        c.vkGetPhysicalDeviceProperties.?(self.handle(), @ptrCast(&props));
         return props;
     }
 
@@ -233,8 +233,8 @@ pub const PhysicalDevice = extern struct {
     ) !c.VkSurfaceCapabilitiesKHR {
         var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
         try vkCheck(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR.?(
-            self.handle,
-            surface.handle,
+            self.handle(),
+            surface,
             &capabilities,
         ));
         return capabilities;
@@ -247,8 +247,8 @@ pub const PhysicalDevice = extern struct {
     ) ![]const c.VkSurfaceFormatKHR {
         var format_count: u32 = undefined;
         try vkCheck(c.vkGetPhysicalDeviceSurfaceFormatsKHR.?(
-            self.handle,
-            surface.handle,
+            self.handle(),
+            surface,
             &format_count,
             null,
         ));
@@ -258,8 +258,8 @@ pub const PhysicalDevice = extern struct {
             format_count,
         );
         try vkCheck(c.vkGetPhysicalDeviceSurfaceFormatsKHR.?(
-            self.handle,
-            surface.handle,
+            self.handle(),
+            surface,
             &format_count,
             formats.ptr,
         ));
@@ -273,8 +273,8 @@ pub const PhysicalDevice = extern struct {
     ) ![]const c.VkPresentModeKHR {
         var mode_count: u32 = undefined;
         try vkCheck(c.vkGetPhysicalDeviceSurfacePresentModesKHR.?(
-            self.handle,
-            surface.handle,
+            self.handle(),
+            surface,
             &mode_count,
             null,
         ));
@@ -284,8 +284,8 @@ pub const PhysicalDevice = extern struct {
             mode_count,
         );
         try vkCheck(c.vkGetPhysicalDeviceSurfacePresentModesKHR.?(
-            self.handle,
-            surface.handle,
+            self.handle(),
+            surface,
             &mode_count,
             modes.ptr,
         ));
@@ -299,23 +299,25 @@ pub const PhysicalDevice = extern struct {
     ) !Device {
         var device: Device = undefined;
         try vkCheck(c.vkCreateDevice.?(
-            self.handle,
+            self.handle(),
             device_info,
             allocator,
-            &device.handle,
+            @ptrCast(&device),
         ));
 
-        c.volkLoadDevice(device.handle);
+        c.volkLoadDevice(device.handle());
         return device;
     }
 };
 
-pub const Device = extern struct {
-    handle: c.VkDevice = null,
+pub const Device = *align(@alignOf(c.VkDevice)) opaque {
+    pub inline fn handle(self: Device) c.VkDevice {
+        return @ptrCast(self);
+    }
 
     pub inline fn getQueue(self: Device, family_index: u32, index: u32) !Queue {
         var queue: Queue = undefined;
-        c.vkGetDeviceQueue.?(self.handle, family_index, index, &queue.handle);
+        c.vkGetDeviceQueue.?(self.handle(), family_index, index, @ptrCast(&queue));
         return queue;
     }
 
@@ -326,21 +328,20 @@ pub const Device = extern struct {
     ) !SwapchainKHR {
         var swapchain: SwapchainKHR = undefined;
         try vkCheck(c.vkCreateSwapchainKHR.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &swapchain.handle,
+            &swapchain,
         ));
         return swapchain;
     }
 
     pub inline fn destroySwapchainKHR(
         self: Device,
-        swapchain: *SwapchainKHR,
+        swapchain: SwapchainKHR,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySwapchainKHR.?(self.handle, swapchain.handle, allocator);
-        swapchain.handle = null;
+        c.vkDestroySwapchainKHR.?(self.handle(), swapchain, allocator);
     }
 
     pub inline fn createShaderModule(
@@ -350,21 +351,20 @@ pub const Device = extern struct {
     ) !ShaderModule {
         var mod: ShaderModule = undefined;
         try vkCheck(c.vkCreateShaderModule.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &mod.handle,
+            &mod,
         ));
         return mod;
     }
 
     pub inline fn destroyShaderModule(
         self: Device,
-        shader: *ShaderModule,
+        shader: ShaderModule,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyShaderModule.?(self.handle, shader.handle, allocator);
-        shader.handle = null;
+        c.vkDestroyShaderModule.?(self.handle(), shader, allocator);
     }
 
     pub inline fn createPipelineLayout(
@@ -374,21 +374,20 @@ pub const Device = extern struct {
     ) !PipelineLayout {
         var layout: PipelineLayout = undefined;
         try vkCheck(c.vkCreatePipelineLayout.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &layout.handle,
+            &layout,
         ));
         return layout;
     }
 
     pub inline fn destroyPipelineLayout(
         self: Device,
-        layout: *PipelineLayout,
+        layout: PipelineLayout,
         allocator: ?*c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyPipelineLayout.?(self.handle, layout.handle, allocator);
-        layout.handle = null;
+        c.vkDestroyPipelineLayout.?(self.handle(), layout, allocator);
     }
 
     pub inline fn createComputePipelines(
@@ -399,23 +398,40 @@ pub const Device = extern struct {
     ) !Pipeline {
         var pipeline: Pipeline = undefined;
         try vkCheck(c.vkCreateComputePipelines.?(
-            self.handle,
-            if (cache) |value| value.handle else null,
+            self.handle(),
+            if (cache) |value| value else null,
             @intCast(infos.len),
             @ptrCast(infos.ptr),
             allocator,
-            &pipeline.handle,
+            &pipeline,
+        ));
+        return pipeline;
+    }
+
+    pub inline fn createGraphicsPipelines(
+        self: Device,
+        cache: ?PipelineCache,
+        infos: []const c.VkGraphicsPipelineCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !Pipeline {
+        var pipeline: Pipeline = undefined;
+        try vkCheck(c.vkCreateGraphicsPipelines.?(
+            self.handle(),
+            if (cache) |value| value else null,
+            @intCast(infos.len),
+            @ptrCast(infos.ptr),
+            allocator,
+            &pipeline,
         ));
         return pipeline;
     }
 
     pub inline fn destroyPipeline(
         self: Device,
-        pipeline: *Pipeline,
+        pipeline: Pipeline,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyPipeline.?(self.handle, pipeline.handle, allocator);
-        pipeline.handle = null;
+        c.vkDestroyPipeline.?(self.handle(), pipeline, allocator);
     }
 
     pub inline fn createImageView(
@@ -425,28 +441,27 @@ pub const Device = extern struct {
     ) !ImageView {
         var view: ImageView = undefined;
         try vkCheck(c.vkCreateImageView.?(
-            self.handle,
+            self.handle(),
             create_info,
             allocator,
-            &view.handle,
+            &view,
         ));
         return view;
     }
 
     pub inline fn destroyImageView(
         self: Device,
-        image_view: *ImageView,
+        image_view: ImageView,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyImageView.?(self.handle, image_view.handle, allocator);
-        image_view.handle = null;
+        c.vkDestroyImageView.?(self.handle(), image_view, allocator);
     }
 
     pub inline fn getSwapchainImageCount(self: Device, swapchain: SwapchainKHR) !u32 {
         var image_count: u32 = undefined;
         try vkCheck(c.vkGetSwapchainImagesKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             &image_count,
             null,
         ));
@@ -461,8 +476,8 @@ pub const Device = extern struct {
         var image_count: u32 = undefined;
 
         try vkCheck(c.vkGetSwapchainImagesKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             &image_count,
             null,
         ));
@@ -473,8 +488,8 @@ pub const Device = extern struct {
         );
 
         try vkCheck(c.vkGetSwapchainImagesKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             &image_count,
             @ptrCast(swapchain_images.ptr),
         ));
@@ -489,16 +504,16 @@ pub const Device = extern struct {
         var image_count: u32 = undefined;
 
         try vkCheck(c.vkGetSwapchainImagesKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             &image_count,
             null,
         ));
 
         try list.ensureUnusedCapacity(image_count);
         try vkCheck(c.vkGetSwapchainImagesKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             &image_count,
             @ptrCast(list.unusedCapacitySlice().ptr),
         ));
@@ -512,10 +527,10 @@ pub const Device = extern struct {
     ) !DescriptorPool {
         var pool: DescriptorPool = undefined;
         try vkCheck(c.vkCreateDescriptorPool.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &pool.handle,
+            &pool,
         ));
         return pool;
     }
@@ -526,23 +541,22 @@ pub const Device = extern struct {
         flags: c.VkDescriptorPoolResetFlags,
     ) Result {
         return result(c.vkResetDescriptorPool.?(
-            self.handle,
-            pool.handle,
+            self.handle(),
+            pool,
             flags,
         ));
     }
 
     pub inline fn destroyDescriptorPool(
         self: Device,
-        pool: *DescriptorPool,
+        pool: DescriptorPool,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
         c.vkDestroyDescriptorPool.?(
-            self.handle,
-            pool.handle,
+            self.handle(),
+            pool,
             allocator,
         );
-        pool.handle = null;
     }
 
     pub inline fn allocateDescriptorSet(
@@ -560,7 +574,7 @@ pub const Device = extern struct {
         out_descriptor_sets: [*]DescriptorSet,
     ) Result {
         return result(c.vkAllocateDescriptorSets.?(
-            self.handle,
+            self.handle(),
             info,
             @ptrCast(out_descriptor_sets),
         ));
@@ -573,10 +587,10 @@ pub const Device = extern struct {
     ) !CommandPool {
         var pool: CommandPool = undefined;
         try vkCheck(c.vkCreateCommandPool.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &pool.handle,
+            &pool,
         ));
         return pool;
     }
@@ -587,9 +601,9 @@ pub const Device = extern struct {
     ) !CommandBuffer {
         var buffer: CommandBuffer = undefined;
         try vkCheck(c.vkAllocateCommandBuffers.?(
-            self.handle,
+            self.handle(),
             info,
-            &buffer.handle,
+            @ptrCast(&buffer),
         ));
         return buffer;
     }
@@ -601,21 +615,20 @@ pub const Device = extern struct {
     ) !DescriptorSetLayout {
         var layout: DescriptorSetLayout = undefined;
         try vkCheck(c.vkCreateDescriptorSetLayout.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &layout.handle,
+            &layout,
         ));
         return layout;
     }
 
     pub inline fn destroyDescriptorSetLayout(
         self: Device,
-        layout: *DescriptorSetLayout,
+        layout: DescriptorSetLayout,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyDescriptorSetLayout.?(self.handle, layout.handle, allocator);
-        layout.handle = null;
+        c.vkDestroyDescriptorSetLayout.?(self.handle(), layout, allocator);
     }
 
     pub inline fn updateDescriptorSets(
@@ -624,7 +637,7 @@ pub const Device = extern struct {
         descriptor_copies: []const c.VkCopyDescriptorSet,
     ) void {
         c.vkUpdateDescriptorSets.?(
-            self.handle,
+            self.handle(),
             @intCast(descriptor_writes.len),
             @ptrCast(descriptor_writes.ptr),
             @intCast(descriptor_copies.len),
@@ -633,16 +646,15 @@ pub const Device = extern struct {
     }
 
     pub inline fn waitIdle(self: Device) Result {
-        return result(c.vkDeviceWaitIdle.?(self.handle));
+        return result(c.vkDeviceWaitIdle.?(self.handle()));
     }
 
     pub inline fn destroyCommandPool(
         self: Device,
-        command_pool: *CommandPool,
+        command_pool: CommandPool,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyCommandPool.?(self.handle, command_pool.handle, allocator);
-        command_pool.handle = null;
+        c.vkDestroyCommandPool.?(self.handle(), command_pool, allocator);
     }
 
     pub inline fn createFence(
@@ -652,21 +664,20 @@ pub const Device = extern struct {
     ) !Fence {
         var fence: Fence = undefined;
         try vkCheck(c.vkCreateFence.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &fence.handle,
+            &fence,
         ));
         return fence;
     }
 
     pub inline fn destroyFence(
         self: Device,
-        fence: *Fence,
+        fence: Fence,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyFence.?(self.handle, fence.handle, allocator);
-        fence.handle = null;
+        c.vkDestroyFence.?(self.handle(), fence, allocator);
     }
 
     pub inline fn createSemaphore(
@@ -676,21 +687,20 @@ pub const Device = extern struct {
     ) !Semaphore {
         var semaphore: Semaphore = undefined;
         try vkCheck(c.vkCreateSemaphore.?(
-            self.handle,
+            self.handle(),
             info,
             allocator,
-            &semaphore.handle,
+            &semaphore,
         ));
         return semaphore;
     }
 
     pub inline fn destroySemaphore(
         self: Device,
-        semaphore: *Semaphore,
+        semaphore: Semaphore,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySemaphore.?(self.handle, semaphore.handle, allocator);
-        semaphore.handle = null;
+        c.vkDestroySemaphore.?(self.handle(), semaphore, allocator);
     }
 
     pub inline fn waitForFences(
@@ -700,7 +710,7 @@ pub const Device = extern struct {
         timeout: u64,
     ) Result {
         return result(c.vkWaitForFences.?(
-            self.handle,
+            self.handle(),
             @intCast(fences.len),
             @ptrCast(fences.ptr),
             vkBool32(wait_all),
@@ -710,7 +720,7 @@ pub const Device = extern struct {
 
     pub inline fn resetFences(self: Device, fences: []const Fence) Result {
         return result(c.vkResetFences.?(
-            self.handle,
+            self.handle(),
             @intCast(fences.len),
             @ptrCast(fences.ptr),
         ));
@@ -725,27 +735,28 @@ pub const Device = extern struct {
     ) !u32 {
         var index: u32 = undefined;
         try vkCheck(c.vkAcquireNextImageKHR.?(
-            self.handle,
-            swapchain.handle,
+            self.handle(),
+            swapchain,
             timeout,
-            if (semaphore) |value| value.handle else null,
-            if (fence) |value| value.handle else null,
+            if (semaphore) |value| value else null,
+            if (fence) |value| value else null,
             &index,
         ));
         return index;
     }
 
     pub inline fn destroy(
-        self: *Device,
+        self: Device,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyDevice.?(self.handle, allocator);
-        self.handle = null;
+        c.vkDestroyDevice.?(self.handle(), allocator);
     }
 };
 
-pub const Queue = extern struct {
-    handle: c.VkQueue = null,
+pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
+    pub inline fn handle(self: Queue) c.VkQueue {
+        return @ptrCast(self);
+    }
 
     pub inline fn submit(
         self: Queue,
@@ -753,10 +764,10 @@ pub const Queue = extern struct {
         fence: ?Fence,
     ) Result {
         return result(c.vkQueueSubmit.?(
-            self.handle,
+            self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
-            if (fence) |f| f.handle else null,
+            if (fence) |f| f else null,
         ));
     }
 
@@ -766,15 +777,15 @@ pub const Queue = extern struct {
         fence: ?Fence,
     ) Result {
         return result(c.vkQueueSubmit2.?(
-            self.handle,
+            self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
-            if (fence) |f| f.handle else null,
+            if (fence) |f| f else null,
         ));
     }
 
     pub inline fn waitIdle(self: Queue) Result {
-        return result(c.vkQueueWaitIdle.?(self.handle));
+        return result(c.vkQueueWaitIdle.?(self.handle()));
     }
 
     pub inline fn bindSparse(
@@ -783,10 +794,10 @@ pub const Queue = extern struct {
         fence: ?Fence,
     ) Result {
         return result(c.vkQueueBindSparse.?(
-            self.handle,
+            self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
-            if (fence) |f| f.handle else null,
+            if (fence) |f| f else null,
         ));
     }
 
@@ -794,34 +805,36 @@ pub const Queue = extern struct {
         self: Queue,
         info: *const c.VkPresentInfoKHR,
     ) Result {
-        return result(c.vkQueuePresentKHR.?(self.handle, info));
+        return result(c.vkQueuePresentKHR.?(self.handle(), info));
     }
 
     // c.vkQueueSignalReleaseImageANDROID
 };
 
-pub const CommandBuffer = extern struct {
-    handle: c.VkCommandBuffer = null,
+pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
+    pub inline fn handle(self: CommandBuffer) c.VkCommandBuffer {
+        return @ptrCast(self);
+    }
 
     pub inline fn begin(
         self: CommandBuffer,
         info: *const c.VkCommandBufferBeginInfo,
     ) Result {
-        return result(c.vkBeginCommandBuffer.?(self.handle, info));
+        return result(c.vkBeginCommandBuffer.?(self.handle(), info));
     }
 
     pub inline fn reset(
         self: CommandBuffer,
         flags: c.VkCommandBufferResetFlags,
     ) Result {
-        return result(c.vkResetCommandBuffer.?(self.handle, flags));
+        return result(c.vkResetCommandBuffer.?(self.handle(), flags));
     }
 
     pub inline fn pipelineBarrier2(
         self: CommandBuffer,
         info: *const c.VkDependencyInfo,
     ) void {
-        c.vkCmdPipelineBarrier2.?(self.handle, info);
+        c.vkCmdPipelineBarrier2.?(self.handle(), info);
     }
 
     pub inline fn clearColorImage(
@@ -832,8 +845,8 @@ pub const CommandBuffer = extern struct {
         ranges: []const c.VkImageSubresourceRange,
     ) void {
         c.vkCmdClearColorImage.?(
-            self.handle,
-            image.handle,
+            self.handle(),
+            image,
             image_layout,
             color,
             @intCast(ranges.len),
@@ -842,14 +855,14 @@ pub const CommandBuffer = extern struct {
     }
 
     pub inline fn end(self: CommandBuffer) Result {
-        return result(c.vkEndCommandBuffer.?(self.handle));
+        return result(c.vkEndCommandBuffer.?(self.handle()));
     }
 
     pub inline fn blitImage2(
         self: CommandBuffer,
         info: *const c.VkBlitImageInfo2,
     ) void {
-        c.vkCmdBlitImage2.?(self.handle, info);
+        c.vkCmdBlitImage2.?(self.handle(), info);
     }
 
     pub inline fn bindPipeline(
@@ -857,7 +870,7 @@ pub const CommandBuffer = extern struct {
         bind_point: c.VkPipelineBindPoint,
         pipeline: Pipeline,
     ) void {
-        c.vkCmdBindPipeline.?(self.handle, bind_point, pipeline.handle);
+        c.vkCmdBindPipeline.?(self.handle(), bind_point, pipeline);
     }
 
     // c.vkCmdBindDescriptorSets
@@ -870,14 +883,40 @@ pub const CommandBuffer = extern struct {
         dynamic_offsets: []const u32,
     ) void {
         c.vkCmdBindDescriptorSets.?(
-            self.handle,
+            self.handle(),
             bind_point,
-            layout.handle,
+            layout,
             first_set,
             @intCast(descriptor_sets.len),
             @ptrCast(descriptor_sets.ptr),
             @intCast(dynamic_offsets.len),
             @ptrCast(dynamic_offsets.ptr),
+        );
+    }
+
+    pub inline fn setViewport(
+        self: CommandBuffer,
+        first_viewport: u32,
+        viewports: []const c.VkViewport,
+    ) void {
+        c.vkCmdSetViewport.?(
+            self.handle(),
+            first_viewport,
+            @intCast(viewports.len),
+            @ptrCast(viewports.ptr),
+        );
+    }
+
+    pub inline fn setScissor(
+        self: CommandBuffer,
+        first_scissor: u32,
+        scissors: []const c.VkRect2D,
+    ) void {
+        c.vkCmdSetScissor.?(
+            self.handle(),
+            first_scissor,
+            @intCast(scissors.len),
+            @ptrCast(scissors.ptr),
         );
     }
 
@@ -888,7 +927,7 @@ pub const CommandBuffer = extern struct {
         group_count_z: u32,
     ) void {
         c.vkCmdDispatch.?(
-            self.handle,
+            self.handle(),
             group_count_x,
             group_count_y,
             group_count_z,
@@ -899,11 +938,27 @@ pub const CommandBuffer = extern struct {
         self: CommandBuffer,
         info: *const c.VkRenderingInfo,
     ) void {
-        c.vkCmdBeginRendering.?(self.handle, info);
+        c.vkCmdBeginRendering.?(self.handle(), info);
+    }
+
+    pub inline fn draw(
+        self: CommandBuffer,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) void {
+        c.vkCmdDraw.?(
+            self.handle(),
+            vertex_count,
+            instance_count,
+            first_vertex,
+            first_instance,
+        );
     }
 
     pub inline fn endRendering(self: CommandBuffer) void {
-        c.vkCmdEndRendering.?(self.handle);
+        c.vkCmdEndRendering.?(self.handle());
     }
 
     pub inline fn pushConstants(
@@ -915,8 +970,8 @@ pub const CommandBuffer = extern struct {
         values: ?*const anyopaque,
     ) void {
         c.vkCmdPushConstants.?(
-            self.handle,
-            layout.handle,
+            self.handle(),
+            layout,
             stage_flags,
             offset,
             size,
@@ -925,147 +980,26 @@ pub const CommandBuffer = extern struct {
     }
 };
 
-pub const SurfaceKHR = extern struct {
-    handle: c.VkSurfaceKHR = null,
-};
-pub const SwapchainKHR = extern struct {
-    handle: c.VkSwapchainKHR = null,
-};
-pub const Image = extern struct {
-    handle: c.VkImage = null,
-};
-pub const ImageView = extern struct {
-    handle: c.VkImageView = null,
-};
-pub const DeviceMemory = extern struct {
-    handle: c.VkDeviceMemory = null,
-};
-pub const CommandPool = extern struct {
-    handle: c.VkCommandPool = null,
-};
-pub const Buffer = extern struct {
-    handle: c.VkBuffer = null,
-};
-pub const BufferView = extern struct {
-    handle: c.VkBufferView = null,
-};
-pub const ShaderModule = extern struct {
-    handle: c.VkShaderModule = null,
-};
-pub const Pipeline = extern struct {
-    handle: c.VkPipeline = null,
-};
-pub const PipelineLayout = extern struct {
-    handle: c.VkPipelineLayout = null,
-};
-pub const Sampler = extern struct {
-    handle: c.VkSampler = null,
-};
-pub const DescriptorSet = extern struct {
-    handle: c.VkDescriptorSet = null,
-};
-pub const DescriptorSetLayout = extern struct {
-    handle: c.VkDescriptorSetLayout = null,
-};
-pub const DescriptorPool = extern struct {
-    handle: c.VkDescriptorPool = null,
-};
-pub const Fence = extern struct {
-    handle: c.VkFence = null,
-};
-pub const Semaphore = extern struct {
-    handle: c.VkSemaphore = null,
-};
-pub const Event = extern struct {
-    handle: c.VkEvent = null,
-};
-pub const QueryPool = extern struct {
-    handle: c.VkQueryPool = null,
-};
-pub const Framebuffer = extern struct {
-    handle: c.VkFramebuffer = null,
-};
-pub const RenderPass = extern struct {
-    handle: c.VkRenderPass = null,
-};
-pub const PipelineCache = extern struct {
-    handle: c.VkPipelineCache = null,
-};
-pub const IndirectCommandsLayoutNV = extern struct {
-    handle: c.VkIndirectCommandsLayoutNV = null,
-};
-pub const DescriptorUpdateTemplate = extern struct {
-    handle: c.VkDescriptorUpdateTemplate = null,
-};
-pub const DescriptorUpdateTemplateKHR = DescriptorUpdateTemplate;
-pub const SamplerYcbcrConversion = extern struct {
-    handle: c.VkSamplerYcbcrConversion = null,
-};
-pub const SamplerYcbcrConversionKHR = SamplerYcbcrConversion;
-pub const ValidationCacheEXT = extern struct {
-    handle: c.VkValidationCacheEXT = null,
-};
-pub const AccelerationStructureKHR = extern struct {
-    handle: c.VkAccelerationStructureKHR = null,
-};
-pub const AccelerationStructureNV = extern struct {
-    handle: c.VkAccelerationStructureNV = null,
-};
-pub const PerformanceConfigurationINTEL = extern struct {
-    handle: c.VkPerformanceConfigurationINTEL = null,
-};
-// pub const BufferCollectionFUCHSIA = extern struct {
-//     handle: c.VkBufferCollectionFUCHSIA = null,
-// };
-pub const DeferredOperationKHR = extern struct {
-    handle: c.VkDeferredOperationKHR = null,
-};
-pub const PrivateDataSlot = extern struct {
-    handle: c.VkPrivateDataSlot = null,
-};
-pub const PrivateDataSlotEXT = PrivateDataSlot;
-pub const CuModuleNVX = extern struct {
-    handle: c.VkCuModuleNVX = null,
-};
-pub const CuFunctionNVX = extern struct {
-    handle: c.VkCuFunctionNVX = null,
-};
-pub const OpticalFlowSessionNV = extern struct {
-    handle: c.VkOpticalFlowSessionNV = null,
-};
-pub const MicromapEXT = extern struct {
-    handle: c.VkMicromapEXT = null,
-};
-pub const ShaderEXT = extern struct {
-    handle: c.VkShaderEXT = null,
-};
-pub const DisplayKHR = extern struct {
-    handle: c.VkDisplayKHR = null,
-};
-pub const DisplayModeKHR = extern struct {
-    handle: c.VkDisplayModeKHR = null,
-};
-pub const DebugReportCallbackEXT = extern struct {
-    handle: c.VkDebugReportCallbackEXT = null,
-};
-pub const DebugUtilsMessengerEXT = extern struct {
-    handle: c.VkDebugUtilsMessengerEXT = null,
-};
-pub const VideoSessionKHR = extern struct {
-    handle: c.VkVideoSessionKHR = null,
-};
-pub const VideoSessionParametersKHR = extern struct {
-    handle: c.VkVideoSessionParametersKHR = null,
-};
-// pub const SemaphoreSciSyncPoolNV = extern struct {
-//     handle: c.VkSemaphoreSciSyncPoolNV = null,
-// };
-pub const CudaModuleNV = extern struct {
-    handle: c.VkCudaModuleNV = null,
-};
-pub const CudaFunctionNV = extern struct {
-    handle: c.VkCudaFunctionNV = null,
-};
+pub const SurfaceKHR = c.VkSurfaceKHR;
+pub const SwapchainKHR = c.VkSwapchainKHR;
+pub const Image = c.VkImage;
+pub const ImageView = c.VkImageView;
+pub const CommandPool = c.VkCommandPool;
+pub const Buffer = c.VkBuffer;
+pub const BufferView = c.VkBufferView;
+pub const ShaderModule = c.VkShaderModule;
+pub const Pipeline = c.VkPipeline;
+pub const PipelineLayout = c.VkPipelineLayout;
+pub const Sampler = c.VkSampler;
+pub const DescriptorSet = c.VkDescriptorSet;
+pub const DescriptorSetLayout = c.VkDescriptorSetLayout;
+pub const DescriptorPool = c.VkDescriptorPool;
+pub const Fence = c.VkFence;
+pub const Semaphore = c.VkSemaphore;
+pub const Framebuffer = c.VkFramebuffer;
+pub const RenderPass = c.VkRenderPass;
+pub const PipelineCache = c.VkPipelineCache;
+pub const DebugUtilsMessengerEXT = c.VkDebugUtilsMessengerEXT;
 
 pub inline fn vkBool32(value: bool) c.VkBool32 {
     return if (value) c.VK_TRUE else c.VK_FALSE;

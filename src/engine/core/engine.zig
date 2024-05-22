@@ -55,7 +55,7 @@ pub const Engine = struct {
             return true;
         }
 
-        self.renderer.render() catch |err| {
+        self.renderer.render(app) catch |err| {
             std.log.err("gargoyle render error: {}\n", .{err});
         };
         return !self.quit;

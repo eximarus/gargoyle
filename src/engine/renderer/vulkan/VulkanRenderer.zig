@@ -3,13 +3,17 @@ const config = @import("config");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
+const vkdraw = @import("vkdraw.zig");
 const vma = @import("vma.zig");
 const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
 const math = @import("../../math/math.zig");
+const types = @import("types.zig");
 
+const AllocatedImage = types.AllocatedImage;
+const AllocatedBuffer = types.AllocatedBuffer;
 const DescriptorLayoutBuilder = descriptors.DescriptorLayoutBuilder;
 const DescriptorAllocator = descriptors.DescriptorAllocator;
 const Config = @import("../../core/app_config.zig").RenderConfig;
@@ -18,9 +22,9 @@ const Window = @import("../../core/window.zig").Window;
 const Swapchain = @import("Swapchain.zig");
 const Instance = @import("Instance.zig");
 const PhysicalDevice = @import("PhysicalDevice.zig");
+const App = @import("../../core/app_types.zig").App;
 
 const VulkanRenderer = @This();
-const frame_overlap = 2; // TODO app level variable
 
 const FrameData = struct {
     command_pool: vk.CommandPool,
@@ -29,15 +33,8 @@ const FrameData = struct {
     render_semaphore: vk.Semaphore,
     render_fence: vk.Fence,
 };
-const AllocatedImage = struct {
-    image: vk.Image,
-    image_view: vk.ImageView,
-    allocation: c.VmaAllocation,
-    image_extent: c.VkExtent3D,
-    image_format: c.VkFormat,
-};
 
-const ComputePushConstants = struct {
+pub const ComputePushConstants = struct {
     data1: math.Vec4,
     data2: math.Vec4,
     data3: math.Vec4,
@@ -50,6 +47,8 @@ const ComputeEffect = struct {
     layout: vk.PipelineLayout,
     data: ComputePushConstants,
 };
+
+allocator: std.mem.Allocator,
 
 instance: vk.Instance,
 debug_messenger: vk.DebugUtilsMessengerEXT,
@@ -66,10 +65,11 @@ swapchain_image_views: std.ArrayList(vk.ImageView),
 graphics_queue_family: ?u32 = null,
 graphics_queue: vk.Queue,
 
-frame_number: i32 = 0,
-frames: [frame_overlap]FrameData,
+frame_number: usize = 0,
+frames: []FrameData,
+frame_overlap: usize = 2,
 
-vma_allocator: c.VmaAllocator,
+vma_allocator: vma.Allocator,
 
 global_descriptor_allocator: DescriptorAllocator,
 
@@ -89,6 +89,9 @@ imm_descriptor_pool: vk.DescriptorPool,
 background_effects: std.ArrayList(ComputeEffect),
 current_background_effect: i32 = 0,
 
+triangle_pipeline_layout: vk.PipelineLayout,
+triangle_pipeline: vk.Pipeline,
+
 pub fn init(
     allocator: std.mem.Allocator,
     window: Window,
@@ -103,8 +106,11 @@ pub fn init(
     try vk.check(vk.init());
 
     var self: VulkanRenderer = undefined;
+    self.allocator = allocator;
     self.frame_number = 0;
     self.graphics_queue_family = null;
+    self.frame_overlap = if (options.tripple_buffering) 3 else 2;
+    self.frames = try allocator.alloc(FrameData, self.frame_overlap);
 
     const bootstrap_inst = try Instance.init(arena, &.{
         .app_name = @ptrCast(config.app_name),
@@ -160,10 +166,11 @@ pub fn init(
     );
 
     self.vma_allocator = try vma.createAllocator(&.{
-        .instance = self.instance,
-        .physical_device = self.gpu,
-        .device = self.device,
+        .instance = self.instance.handle(),
+        .physicalDevice = self.gpu.handle(),
+        .device = self.device.handle(),
         .flags = c.VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+        .pVulkanFunctions = &vma.getVulkanFunctions(),
     });
 
     const draw_image_extent = c.VkExtent3D{
@@ -180,8 +187,7 @@ pub fn init(
         c.VK_IMAGE_USAGE_STORAGE_BIT |
         c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-    _ = c.vmaCreateImage(
-        self.vma_allocator,
+    self.draw_image.image, self.draw_image.allocation = try self.vma_allocator.createImage(
         &vkinit.imageCreateInfo(
             self.draw_image.image_format,
             draw_image_usages,
@@ -191,8 +197,6 @@ pub fn init(
             .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
             .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         },
-        &self.draw_image.image.handle,
-        &self.draw_image.allocation,
         null,
     );
 
@@ -278,7 +282,7 @@ fn createVkDevice(self: *VulkanRenderer, arena: std.mem.Allocator) !void {
 }
 
 inline fn getCurrentFrame(self: *VulkanRenderer) *FrameData {
-    return &self.frames[@intCast(@rem(self.frame_number, frame_overlap))];
+    return &self.frames[@rem(self.frame_number, self.frame_overlap)];
 }
 
 fn initCommands(self: *VulkanRenderer) !void {
@@ -287,7 +291,7 @@ fn initCommands(self: *VulkanRenderer) !void {
         .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
         .queueFamilyIndex = self.graphics_queue_family.?,
     };
-    for (&self.frames) |*frame| {
+    for (self.frames) |*frame| {
         frame.command_pool = try self.device.createCommandPool(
             &command_pool_info,
             null,
@@ -295,7 +299,7 @@ fn initCommands(self: *VulkanRenderer) !void {
 
         frame.command_buffer = try self.device.allocateCommandBuffers(&.{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = frame.command_pool.handle,
+            .commandPool = frame.command_pool,
             .commandBufferCount = 1,
             .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         });
@@ -334,12 +338,12 @@ fn initDescriptors(self: *VulkanRenderer, allocator: std.mem.Allocator) !void {
         c.VkWriteDescriptorSet{
             .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstBinding = 0,
-            .dstSet = self.draw_image_descriptors.handle,
+            .dstSet = self.draw_image_descriptors,
             .descriptorCount = 1,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             .pImageInfo = &c.VkDescriptorImageInfo{
                 .imageLayout = c.VK_IMAGE_LAYOUT_GENERAL,
-                .imageView = self.draw_image.image_view.handle,
+                .imageView = self.draw_image.image_view,
             },
         },
     }, &.{});
@@ -348,7 +352,7 @@ fn initDescriptors(self: *VulkanRenderer, allocator: std.mem.Allocator) !void {
 fn initPipelines(self: *VulkanRenderer) !void {
     self.gradient_pipeline_layout = try self.device.createPipelineLayout(&.{
         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pSetLayouts = &self.draw_image_descriptor_layout.handle,
+        .pSetLayouts = &self.draw_image_descriptor_layout,
         .setLayoutCount = 1,
 
         .pPushConstantRanges = &[1]c.VkPushConstantRange{
@@ -361,19 +365,20 @@ fn initPipelines(self: *VulkanRenderer) !void {
         .pushConstantRangeCount = 1,
     }, null);
 
-    var gradient_shader = try pipelines.loadShaderModule(
+    const gradient_shader = try pipelines.loadShaderModule(
         "shaders/glsl/gradient.comp",
         self.device,
     );
+    defer self.device.destroyShaderModule(gradient_shader, null);
 
     var compute_pipeline_create_info =
         c.VkComputePipelineCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .layout = self.gradient_pipeline_layout.handle,
+        .layout = self.gradient_pipeline_layout,
         .stage = c.VkPipelineShaderStageCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
-            .module = gradient_shader.handle,
+            .module = gradient_shader,
             .pName = "main",
         },
     };
@@ -394,8 +399,9 @@ fn initPipelines(self: *VulkanRenderer) !void {
         ),
     };
 
-    var sky_shader = try pipelines.loadShaderModule("shaders/glsl/sky.comp", self.device);
-    compute_pipeline_create_info.stage.module = sky_shader.handle;
+    const sky_shader = try pipelines.loadShaderModule("shaders/glsl/sky.comp", self.device);
+    defer self.device.destroyShaderModule(sky_shader, null);
+    compute_pipeline_create_info.stage.module = sky_shader;
 
     const sky = ComputeEffect{
         .layout = self.gradient_pipeline_layout,
@@ -416,50 +422,48 @@ fn initPipelines(self: *VulkanRenderer) !void {
     try self.background_effects.append(gradient);
     try self.background_effects.append(sky);
 
-    self.device.destroyShaderModule(&gradient_shader, null);
-    self.device.destroyShaderModule(&sky_shader, null);
+    const triangle_frag_shader = try pipelines.loadShaderModule(
+        "shaders/glsl/colored_triangle.frag",
+        self.device,
+    );
+    defer self.device.destroyShaderModule(triangle_frag_shader, null);
+
+    const triangle_vertex_shader = try pipelines.loadShaderModule(
+        "shaders/glsl/colored_triangle.vert",
+        self.device,
+    );
+    defer self.device.destroyShaderModule(triangle_vertex_shader, null);
+
+    self.triangle_pipeline_layout = try self.device.createPipelineLayout(&vkinit.pipelineLayoutCreateInfo(), null);
+
+    self.triangle_pipeline = try pipelines.pipeline(self.device, &.{
+        .shaders = .{
+            .vertex_shader = triangle_vertex_shader,
+            .fragment_shader = triangle_frag_shader,
+        },
+        .pipeline_layout = self.triangle_pipeline_layout,
+        .input_topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .polygon_mode = c.VK_POLYGON_MODE_FILL,
+        .cull_mode = .{
+            .flags = c.VK_CULL_MODE_NONE,
+            .front_face = c.VK_FRONT_FACE_CLOCKWISE,
+        },
+        .blending = .none,
+        .depth_test = null,
+        .color_attachment_format = self.draw_image.image_format,
+        .depth_format = c.VK_FORMAT_UNDEFINED,
+    });
 }
 
 fn initSync(self: *VulkanRenderer) !void {
     const fence_create_info = vkinit.fenceCreateInfo(c.VK_FENCE_CREATE_SIGNALED_BIT);
     const sempahore_create_info = vkinit.semaphoreCreateInfo(0);
 
-    for (&self.frames) |*frame| {
+    for (self.frames) |*frame| {
         frame.render_fence = try self.device.createFence(&fence_create_info, null);
         frame.swapchain_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
         frame.render_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
     }
-}
-
-fn transitionImage(
-    cmd: vk.CommandBuffer,
-    image: vk.Image,
-    current_layout: c.VkImageLayout,
-    new_layout: c.VkImageLayout,
-) void {
-    cmd.pipelineBarrier2(&.{
-        .sType = c.VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &.{
-            .sType = c.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = c.VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-            .srcAccessMask = c.VK_ACCESS_2_MEMORY_WRITE_BIT,
-            .dstStageMask = c.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            .dstAccessMask = c.VK_ACCESS_2_MEMORY_WRITE_BIT |
-                c.VK_ACCESS_2_MEMORY_READ_BIT,
-
-            .oldLayout = current_layout,
-            .newLayout = new_layout,
-
-            .subresourceRange = vkinit.imageSubresourceRange(
-                if (new_layout == c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-                    c.VK_IMAGE_ASPECT_DEPTH_BIT
-                else
-                    c.VK_IMAGE_ASPECT_COLOR_BIT,
-            ),
-            .image = image.handle,
-        },
-    });
 }
 
 fn initImgui(self: *VulkanRenderer, window: Window) !void {
@@ -490,11 +494,11 @@ fn initImgui(self: *VulkanRenderer, window: Window) !void {
     _ = c.ImGui_ImplSDL2_InitForVulkan(window._sdl_window);
 
     _ = imgui.ImGui_ImplVulkan_Init(&.{
-        .instance = self.instance.handle,
-        .physical_device = self.gpu.handle,
-        .device = self.device.handle,
-        .queue = self.graphics_queue.handle,
-        .descriptor_pool = self.imm_descriptor_pool.handle,
+        .instance = self.instance.handle(),
+        .physical_device = self.gpu.handle(),
+        .device = self.device.handle(),
+        .queue = self.graphics_queue.handle(),
+        .descriptor_pool = self.imm_descriptor_pool,
         .min_image_count = 3,
         .image_count = 3,
         .msaa_samples = c.VK_SAMPLE_COUNT_1_BIT,
@@ -509,25 +513,29 @@ fn initImgui(self: *VulkanRenderer, window: Window) !void {
     _ = imgui.ImGui_ImplVulkan_CreateFontsTexture();
 }
 
-fn renderImgui(
+fn createBuffer(
     self: *VulkanRenderer,
-    cmd: vk.CommandBuffer,
-    target_image_view: vk.ImageView,
-) void {
-    cmd.beginRendering(&vkinit.renderingInfo(
-        self.swapchain_extent,
-        &vkinit.attachmentInfo(
-            target_image_view,
-            null,
-            c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        ),
-        null,
-    ));
-    imgui.ImGui_ImplVulkan_RenderDrawData(c.igGetDrawData(), cmd.handle, null);
-    cmd.endRendering();
+    alloc_size: usize,
+    usage: c.VkBufferUsageFlags,
+    memory_usage: c.VmaMemoryUsage,
+) AllocatedBuffer {
+    var new_buffer: AllocatedBuffer = undefined;
+    new_buffer.buffer, new_buffer.allocation = try self.vma_allocator.createBuffer(
+        &c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = @intCast(alloc_size),
+            .usage = usage,
+        },
+        &c.VmaAllocationCreateInfo{
+            .usage = memory_usage,
+            .flags = c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        },
+        &new_buffer.info,
+    );
+    return new_buffer;
 }
 
-pub fn render(self: *VulkanRenderer) !void {
+pub fn render(self: *VulkanRenderer, app: *App) !void {
     imgui.ImGui_ImplVulkan_NewFrame();
     c.ImGui_ImplSDL2_NewFrame();
     c.igNewFrame();
@@ -554,6 +562,7 @@ pub fn render(self: *VulkanRenderer) !void {
 
         c.igEnd();
     }
+    _ = app.onGui();
 
     c.igRender();
 
@@ -581,74 +590,44 @@ pub fn render(self: *VulkanRenderer) !void {
         .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     }));
 
-    transitionImage(
+    vkdraw.transitionImage(
         frame.command_buffer,
         self.draw_image.image,
         c.VK_IMAGE_LAYOUT_UNDEFINED,
         c.VK_IMAGE_LAYOUT_GENERAL,
     );
 
-    frame.command_buffer.clearColorImage(
-        self.draw_image.image,
-        c.VK_IMAGE_LAYOUT_GENERAL,
-        &.{
-            .float32 = .{
-                100.0 / 255.0,
-                149.0 / 255.0,
-                237.0 / 255.0,
-                0.0,
-            },
-        },
-        &.{vkinit.imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
+    vkdraw.background(
+        self,
+        frame.command_buffer,
     );
 
-    const effect = self.background_effects.items[
-        @intCast(self.current_background_effect)
-    ];
-
-    frame.command_buffer.bindPipeline(
-        c.VK_PIPELINE_BIND_POINT_COMPUTE,
-        effect.pipeline,
-    );
-    frame.command_buffer.bindDescriptorSets(
-        c.VK_PIPELINE_BIND_POINT_COMPUTE,
-        self.gradient_pipeline_layout,
-        0,
-        &.{self.draw_image_descriptors},
-        &.{},
-    );
-
-    frame.command_buffer.pushConstants(
-        self.gradient_pipeline_layout,
-        c.VK_SHADER_STAGE_COMPUTE_BIT,
-        0,
-        @sizeOf(ComputePushConstants),
-        &effect.data,
-    );
-
-    frame.command_buffer.dispatch(
-        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.width)) / 16.0)),
-        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.height)) / 16.0)),
-        1,
-    );
-
-    transitionImage(
+    vkdraw.transitionImage(
         frame.command_buffer,
         self.draw_image.image,
         c.VK_IMAGE_LAYOUT_GENERAL,
+        c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    );
+
+    vkdraw.geometry(self, frame.command_buffer);
+
+    vkdraw.transitionImage(
+        frame.command_buffer,
+        self.draw_image.image,
+        c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     );
 
     const next_image = self.swapchain_images.items[swapchain_image_index];
 
-    transitionImage(
+    vkdraw.transitionImage(
         frame.command_buffer,
         next_image,
         c.VK_IMAGE_LAYOUT_UNDEFINED,
         c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
     );
 
-    copyImageToImage(
+    vkdraw.copyImageToImage(
         frame.command_buffer,
         self.draw_image.image,
         next_image,
@@ -656,19 +635,20 @@ pub fn render(self: *VulkanRenderer) !void {
         self.swapchain_extent,
     );
 
-    transitionImage(
+    vkdraw.transitionImage(
         frame.command_buffer,
         next_image,
         c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     );
 
-    self.renderImgui(
+    vkdraw.gui(
         frame.command_buffer,
         self.swapchain_image_views.items[swapchain_image_index],
+        self.swapchain_extent,
     );
 
-    transitionImage(
+    vkdraw.transitionImage(
         frame.command_buffer,
         next_image,
         c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -693,63 +673,14 @@ pub fn render(self: *VulkanRenderer) !void {
 
     try vk.check(self.graphics_queue.presentKHR(&.{
         .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pSwapchains = &self.swapchain.handle,
+        .pSwapchains = &self.swapchain,
         .swapchainCount = 1,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &frame.render_semaphore.handle,
+        .pWaitSemaphores = &frame.render_semaphore,
         .pImageIndices = &swapchain_image_index,
     }));
 
     self.frame_number += 1;
-}
-
-inline fn copyImageToImage(
-    cmd: vk.CommandBuffer,
-    src: vk.Image,
-    dst: vk.Image,
-    src_size: c.VkExtent2D,
-    dst_size: c.VkExtent2D,
-) void {
-    cmd.blitImage2(&.{
-        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
-        .dstImage = dst.handle,
-        .dstImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        .srcImage = src.handle,
-        .srcImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        .filter = c.VK_FILTER_LINEAR,
-        .regionCount = 1,
-        .pRegions = &c.VkImageBlit2{
-            .sType = c.VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
-            .srcOffsets = .{
-                .{},
-                .{
-                    .x = @bitCast(src_size.width),
-                    .y = @bitCast(src_size.height),
-                    .z = 1,
-                },
-            },
-            .dstOffsets = .{
-                .{},
-                .{
-                    .x = @bitCast(dst_size.width),
-                    .y = @bitCast(dst_size.height),
-                    .z = 1,
-                },
-            },
-            .srcSubresource = .{
-                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-                .mipLevel = 0,
-            },
-            .dstSubresource = .{
-                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-                .mipLevel = 0,
-            },
-        },
-    });
 }
 
 pub fn onWindowResize(self: *VulkanRenderer, width: u32, height: u32) void {
@@ -759,8 +690,8 @@ pub fn onWindowResize(self: *VulkanRenderer, width: u32, height: u32) void {
 }
 
 fn destroySwapchain(self: *VulkanRenderer) void {
-    self.device.destroySwapchainKHR(&self.swapchain, null);
-    for (self.swapchain_image_views.items) |*image_view| {
+    self.device.destroySwapchainKHR(self.swapchain, null);
+    for (self.swapchain_image_views.items) |image_view| {
         self.device.destroyImageView(image_view, null);
     }
     self.swapchain_image_views.deinit();
@@ -771,35 +702,39 @@ pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
 
     imgui.ImGui_ImplVulkan_Shutdown();
-    self.device.destroyDescriptorPool(&self.imm_descriptor_pool, null);
+    self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
 
-    self.device.destroyDescriptorSetLayout(&self.draw_image_descriptor_layout, null);
-    self.device.destroyDescriptorPool(&self.global_descriptor_allocator.pool, null);
+    self.device.destroyDescriptorSetLayout(self.draw_image_descriptor_layout, null);
+    self.device.destroyDescriptorPool(self.global_descriptor_allocator.pool, null);
 
-    self.device.destroyPipelineLayout(&self.gradient_pipeline_layout, null);
+    self.device.destroyPipelineLayout(self.triangle_pipeline_layout, null);
+    self.device.destroyPipeline(self.triangle_pipeline, null);
+
+    self.device.destroyPipelineLayout(self.gradient_pipeline_layout, null);
     for (self.background_effects.items) |*effect| {
-        self.device.destroyPipeline(&effect.pipeline, null);
+        self.device.destroyPipeline(effect.pipeline, null);
     }
     self.background_effects.deinit();
 
-    self.device.destroyImageView(&self.draw_image.image_view, null);
-    _ = c.vmaDestroyImage(
-        self.vma_allocator,
-        self.draw_image.image.handle,
+    self.device.destroyImageView(self.draw_image.image_view, null);
+    self.vma_allocator.destroyImage(
+        self.draw_image.image,
         self.draw_image.allocation,
     );
 
-    for (&self.frames) |*frame| {
-        self.device.destroyCommandPool(&frame.command_pool, null);
-        self.device.destroyFence(&frame.render_fence, null);
-        self.device.destroySemaphore(&frame.render_semaphore, null);
-        self.device.destroySemaphore(&frame.swapchain_semaphore, null);
+    for (self.frames) |*frame| {
+        self.device.destroyCommandPool(frame.command_pool, null);
+        self.device.destroyFence(frame.render_fence, null);
+        self.device.destroySemaphore(frame.render_semaphore, null);
+        self.device.destroySemaphore(frame.swapchain_semaphore, null);
     }
 
     self.destroySwapchain();
-    self.instance.destroySurfaceKHR(&self.surface, null);
-    c.vmaDestroyAllocator(self.vma_allocator);
+    self.instance.destroySurfaceKHR(self.surface, null);
+    self.vma_allocator.destroy();
     self.device.destroy(null);
-    self.instance.destroyDebugUtilsMessengerEXT(&self.debug_messenger, null) catch {};
+    self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null) catch {};
     self.instance.destroy(null);
+
+    self.allocator.free(self.frames);
 }

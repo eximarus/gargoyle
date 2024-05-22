@@ -88,8 +88,8 @@ pub const Window = struct {
         var surface: vk.SurfaceKHR = undefined;
         if (c.SDL_Vulkan_CreateSurface(
             self._sdl_window,
-            instance.handle,
-            &surface.handle,
+            instance.handle(),
+            &surface,
         ) != c.SDL_TRUE) {
             std.log.err(
                 "failed to create SDL vulkan surface: {s}",

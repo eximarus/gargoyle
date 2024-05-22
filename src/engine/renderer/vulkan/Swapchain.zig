@@ -59,7 +59,7 @@ pub inline fn init(
         allocation_callbacks: ?*c.VkAllocationCallbacks = null,
     },
 ) !Swapchain {
-    if (surface.handle == null) {
+    if (surface == null) {
         return error.SurfaceHandleNotProvided;
     }
 
@@ -163,7 +163,7 @@ pub inline fn init(
     var swapchain_create_info = c.VkSwapchainCreateInfoKHR{
         .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .flags = info.create_flags,
-        .surface = surface.handle,
+        .surface = surface,
         .minImageCount = image_count,
         .imageFormat = surface_format.format,
         .imageColorSpace = surface_format.colorSpace,
@@ -190,8 +190,8 @@ pub inline fn init(
 
     if (info.old_swapchain) |value| {
         swapchain_create_info.oldSwapchain = switch (value) {
-            .swapchain => |s| s.swapchain.handle,
-            .vk_swapchain => |s| s.handle,
+            .swapchain => |s| s.swapchain,
+            .vk_swapchain => |s| s,
         };
     }
 
@@ -269,7 +269,7 @@ pub inline fn getImageViews(
         var create_info: c.VkImageViewCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 
-            .image = image.handle,
+            .image = image,
             .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
             .format = self.image_format,
             .components = .{
@@ -328,7 +328,7 @@ pub inline fn getImageViewsBuffered(
         var create_info: c.VkImageViewCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 
-            .image = image.handle,
+            .image = image,
             .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
             .format = self.image_format,
             .components = .{

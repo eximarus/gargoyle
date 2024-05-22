@@ -38,6 +38,10 @@ fn Export(comptime T: type) type {
             assertDecl(T, "fixedUpdate", fn (*T, f32) anyerror!void);
             return if (self.fixedUpdate(dt)) 0 else |err| @intFromError(err);
         }
+        export fn appOnGui(self: *T) callconv(.C) u32 {
+            assertDecl(T, "onGui", fn (*T) anyerror!void);
+            return if (self.onGui()) 0 else |err| @intFromError(err);
+        }
         export fn appDeinit(self: *T) callconv(.C) void {
             assertDecl(T, "deinit", fn (*T) void);
             self.deinit();

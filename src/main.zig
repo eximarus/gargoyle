@@ -73,6 +73,7 @@ pub const AppSymbols = struct {
     appReload: app_types.ReloadFn = undefined,
     appUpdate: app_types.UpdateFn = undefined,
     appFixedUpdate: app_types.FixedUpdateFn = undefined,
+    appOnGui: app_types.OnGuiFn = undefined,
     appDeinit: app_types.DeinitFn = undefined,
     appDestroy: app_types.DestroyFn = undefined,
 };
@@ -142,5 +143,6 @@ inline fn updateAppPointers(symbols: AppSymbols, app: *app_types.App) void {
     app._fixedUpdate = symbols.appFixedUpdate;
     app._update = symbols.appUpdate;
     app._reload = symbols.appReload;
+    app._onGui = symbols.appOnGui;
     app._deinit = symbols.appDeinit;
 }

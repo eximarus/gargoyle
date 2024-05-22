@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
+const CString = @import("common.zig").CString;
 
 pub inline fn imageCreateInfo(
     format: c.VkFormat,
@@ -28,7 +29,7 @@ pub inline fn imageViewCreateInfo(
     return .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
-        .image = image.handle,
+        .image = image,
         .format = format,
         .subresourceRange = .{
             .baseMipLevel = 0,
@@ -45,7 +46,7 @@ pub inline fn commandBufferSubmitInfo(
 ) c.VkCommandBufferSubmitInfo {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        .commandBuffer = cmd.handle,
+        .commandBuffer = cmd.handle(),
         .deviceMask = 0,
     };
 }
@@ -56,7 +57,7 @@ pub inline fn sempahoreSubmitInfo(
 ) c.VkSemaphoreSubmitInfo {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = semaphore.handle,
+        .semaphore = semaphore,
         .stageMask = stage_mask,
         .deviceIndex = 0,
         .value = 1,
@@ -86,7 +87,7 @@ pub inline fn attachmentInfo(
 ) c.VkRenderingAttachmentInfo {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = view.handle,
+        .imageView = view,
         .imageLayout = layout,
         .loadOp = if (clear) |_| c.VK_ATTACHMENT_LOAD_OP_CLEAR else c.VK_ATTACHMENT_LOAD_OP_LOAD,
         .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
@@ -137,5 +138,24 @@ pub inline fn renderingInfo(
         .colorAttachmentCount = 1,
         .pColorAttachments = color_attachment,
         .pDepthAttachment = depth_attachment,
+    };
+}
+
+pub inline fn pipelineShaderStageCreateInfo(
+    stage: c.VkShaderStageFlagBits,
+    shader_module: vk.ShaderModule,
+    entry: CString,
+) c.VkPipelineShaderStageCreateInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = stage,
+        .module = shader_module,
+        .pName = entry,
+    };
+}
+
+pub inline fn pipelineLayoutCreateInfo() c.VkPipelineLayoutCreateInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
     };
 }
