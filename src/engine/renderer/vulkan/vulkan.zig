@@ -515,7 +515,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
             self.handle(),
             swapchain,
             &image_count,
-            @ptrCast(list.unusedCapacitySlice().ptr),
+            list.unusedCapacitySlice().ptr,
         ));
         list.items.len += image_count;
     }
@@ -561,14 +561,40 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
 
     pub inline fn allocateDescriptorSet(
         self: Device,
-        info: *const c.VkDescriptorSetAllocateInfo,
+        info: *const struct {
+            pNext: ?*const anyopaque = std.mem.zeroes(?*const anyopaque),
+            descriptorPool: DescriptorPool = std.mem.zeroes(DescriptorPool),
+            layout: DescriptorSetLayout = std.mem.zeroes(DescriptorSetLayout),
+        },
     ) !DescriptorSet {
-        var descriptor_set: [1]DescriptorSet = undefined;
-        try check(self.allocateDescriptorSets(info, &descriptor_set));
-        return descriptor_set[0];
+        return (try self.allocateDescriptorSets(1, &.{
+            .pNext = info.pNext,
+            .descriptorPool = info.descriptorPool,
+            .layouts = .{info.layout},
+        }))[0];
     }
 
     pub inline fn allocateDescriptorSets(
+        self: Device,
+        comptime count: comptime_int,
+        info: *const struct {
+            pNext: ?*const anyopaque = std.mem.zeroes(?*const anyopaque),
+            descriptorPool: DescriptorPool = std.mem.zeroes(DescriptorPool),
+            layouts: [count]DescriptorSetLayout = std.mem.zeroes([count]DescriptorSetLayout),
+        },
+    ) ![count]DescriptorSet {
+        var descriptor_sets: [count]DescriptorSet = undefined;
+        try check(self.allocateDescriptorSetsDynamic(&.{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .pNext = info.pNext,
+            .descriptorPool = info.descriptorPool,
+            .descriptorSetCount = count,
+            .pSetLayouts = &info.layouts,
+        }, &descriptor_sets));
+        return descriptor_sets;
+    }
+
+    pub inline fn allocateDescriptorSetsDynamic(
         self: Device,
         info: *const c.VkDescriptorSetAllocateInfo,
         out_descriptor_sets: [*]DescriptorSet,
@@ -576,7 +602,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         return result(c.vkAllocateDescriptorSets.?(
             self.handle(),
             info,
-            @ptrCast(out_descriptor_sets),
+            out_descriptor_sets,
         ));
     }
 
@@ -726,6 +752,13 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         ));
     }
 
+    pub inline fn getBufferDeviceAddress(
+        self: Device,
+        info: *const c.VkBufferDeviceAddressInfo,
+    ) c.VkDeviceAddress {
+        return c.vkGetBufferDeviceAddress.?(self.handle(), info);
+    }
+
     pub inline fn acquireNextImageKHR(
         self: Device,
         swapchain: SwapchainKHR,
@@ -858,6 +891,21 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         return result(c.vkEndCommandBuffer.?(self.handle()));
     }
 
+    pub inline fn copyBuffer(
+        self: CommandBuffer,
+        src: Buffer,
+        dst: Buffer,
+        regions: []const c.VkBufferCopy,
+    ) void {
+        c.vkCmdCopyBuffer.?(
+            self.handle(),
+            src,
+            dst,
+            @intCast(regions.len),
+            @ptrCast(regions.ptr),
+        );
+    }
+
     pub inline fn blitImage2(
         self: CommandBuffer,
         info: *const c.VkBlitImageInfo2,
@@ -871,6 +919,15 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         pipeline: Pipeline,
     ) void {
         c.vkCmdBindPipeline.?(self.handle(), bind_point, pipeline);
+    }
+
+    pub inline fn bindIndexBuffer(
+        self: CommandBuffer,
+        buffer: Buffer,
+        offset: c.VkDeviceSize,
+        index_type: c.VkIndexType,
+    ) void {
+        c.vkCmdBindIndexBuffer.?(self.handle(), buffer, offset, index_type);
     }
 
     // c.vkCmdBindDescriptorSets
@@ -953,6 +1010,24 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
             vertex_count,
             instance_count,
             first_vertex,
+            first_instance,
+        );
+    }
+
+    pub inline fn drawIndexed(
+        self: CommandBuffer,
+        index_count: u32,
+        instance_count: u32,
+        first_index: u32,
+        vertex_offset: i32,
+        first_instance: u32,
+    ) void {
+        c.vkCmdDrawIndexed.?(
+            self.handle(),
+            index_count,
+            instance_count,
+            first_index,
+            vertex_offset,
             first_instance,
         );
     }

@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
 
@@ -86,18 +87,19 @@ pub const Allocator = *align(@alignOf(c.VmaAllocator)) opaque {
 
     pub inline fn createBuffer(
         self: Allocator,
-        buffer_create_info: c.VkBufferCreateInfo,
-        allocation_create_info: c.VmaAllocationCreateInfo,
+        buffer_create_info: *const c.VkBufferCreateInfo,
+        allocation_create_info: *const c.VmaAllocationCreateInfo,
         allocation_info: ?*c.VmaAllocationInfo,
     ) !struct { vk.Buffer, Allocation } {
         var buffer: vk.Buffer = undefined;
-        const allocation: Allocation = undefined;
+        var allocation: Allocation = undefined;
+
         try vk.check(vk.result(c.vmaCreateBuffer(
             self.handle(),
             buffer_create_info,
             allocation_create_info,
             &buffer,
-            allocation,
+            &allocation,
             allocation_info,
         )));
         return .{ buffer, allocation };
@@ -108,7 +110,23 @@ pub const Allocator = *align(@alignOf(c.VmaAllocator)) opaque {
         buffer: vk.Buffer,
         allocation: Allocation,
     ) void {
-        c.vmaDestroyBuffer(self.handle(), buffer.handle, allocation);
+        c.vmaDestroyBuffer(self.handle(), buffer, allocation);
+    }
+
+    pub inline fn mapMemory(self: Allocator, allocation: Allocation) !*anyopaque {
+        var data: ?*anyopaque = undefined;
+
+        try vk.check(vk.result(c.vmaMapMemory(
+            self.handle(),
+            allocation,
+            &data,
+        )));
+
+        return data orelse error.VmaMappedToNull;
+    }
+
+    pub inline fn unmapMemory(self: Allocator, allocation: Allocation) void {
+        c.vmaUnmapMemory(self.handle(), allocation);
     }
 
     pub inline fn destroy(self: Allocator) void {

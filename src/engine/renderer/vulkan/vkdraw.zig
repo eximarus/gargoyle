@@ -8,6 +8,7 @@ const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
+const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 const math = @import("../../math/math.zig");
 const CString = common.CString;
@@ -116,7 +117,7 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         ), null),
     );
 
-    cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.triangle_pipeline);
+    cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.mesh_pipeline);
     cmd.setViewport(0, &.{
         c.VkViewport{
             .x = 0,
@@ -141,7 +142,21 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         },
     });
 
-    cmd.draw(3, 1, 0, 0);
+    const push_constants = types.DrawPushConstants{
+        .world_matrix = math.Mat4.identity(),
+        .vertex_buffer = self.mesh.vb_addr,
+    };
+
+    cmd.pushConstants(
+        self.mesh_pipeline_layout,
+        c.VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        @sizeOf(types.DrawPushConstants),
+        &push_constants,
+    );
+
+    cmd.bindIndexBuffer(self.mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
+    cmd.drawIndexed(6, 1, 0, 0, 0);
     cmd.endRendering();
 }
 

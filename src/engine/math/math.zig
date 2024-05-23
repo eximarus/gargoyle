@@ -1,112 +1,16 @@
 const std = @import("std");
 pub usingnamespace std.math;
 
-pub const vec4 = Vec4.new;
-pub const Vec4 = extern struct {
-    x: f32,
-    y: f32,
-    z: f32,
-    w: f32,
+pub usingnamespace @import("vec2.zig");
+pub usingnamespace @import("vec3.zig");
+pub usingnamespace @import("vec4.zig");
+pub usingnamespace @import("quat.zig");
+pub usingnamespace @import("mat3.zig");
+pub usingnamespace @import("mat4.zig");
 
-    pub inline fn new(x: f32, y: f32, z: f32, w: f32) Vec4 {
-        return Vec4{ .x = x, .y = y, .z = z, .w = w };
-    }
-};
-
-pub const vec3 = Vec3.new;
-pub const Vec3 = extern struct {
-    x: f32,
-    y: f32,
-    z: f32,
-
-    pub inline fn new(x: f32, y: f32, z: f32) Vec3 {
-        return Vec3{ .x = x, .y = y, .z = z };
-    }
-};
-
-pub const vec2 = Vec2.new;
-pub const Vec2 = extern struct {
-    x: f32,
-    y: f32,
-
-    pub inline fn new(x: f32, y: f32) Vec2 {
-        return Vec2{ .x = x, .y = y };
-    }
-
-    pub inline fn zero() Vec2 {
-        return new(0.0, 0.0);
-    }
-
-    pub inline fn one() Vec2 {
-        return new(1.0, 1.0);
-    }
-
-    pub inline fn up() Vec2 {
-        return new(0.0, 1.0);
-    }
-
-    pub inline fn down() Vec2 {
-        return new(0.0, -1.0);
-    }
-
-    pub inline fn left() Vec2 {
-        return new(-1.0, 0.0);
-    }
-
-    pub inline fn right() Vec2 {
-        return new(1.0, 0.0);
-    }
-
-    pub inline fn add(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x + other.x, self.y + other.y);
-    }
-
-    pub inline fn sub(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x - other.x, self.y - other.y);
-    }
-
-    pub inline fn mul(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x * other.x, self.y * other.y);
-    }
-
-    pub inline fn div(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x / other.x, self.y / other.y);
-    }
-
-    pub inline fn magSq(self: Vec2) f32 {
-        return self.x * self.x + self.y * self.y;
-    }
-
-    pub inline fn mag(self: Vec2) f32 {
-        return std.math.sqrt(self.magSq());
-    }
-
-    pub inline fn normalize(self: *Vec2) void {
-        const m = self.mag();
-        self.x /= m;
-        self.y /= m;
-    }
-
-    pub inline fn normalized(self: Vec2) Vec2 {
-        var v = self;
-        v.normalize();
-        return v;
-    }
-
-    pub inline fn approxEq(self: Vec2, other: Vec2, tolerance: f32) bool {
-        if (!std.math.approxEqAbs(f32, self.x, other.x, tolerance)) {
-            return false;
-        }
-        if (!std.math.approxEqAbs(f32, self.y, other.y, tolerance)) {
-            return false;
-        }
-        return true;
-    }
-
-    pub inline fn dist(self: Vec2, other: Vec2) f32 {
-        return self.sub(other).mag();
-    }
-};
+pub inline fn color4(r: f32, g: f32, b: f32, a: f32) Color4 {
+    return .{ .r = r, .g = g, .b = b, .a = a };
+}
 
 pub const Color4 = extern struct {
     r: f32,
@@ -126,12 +30,10 @@ pub const TexCoords = extern struct {
     v: f32,
 };
 
-pub const Quat = Vec4;
-
 pub const Float2 = extern union {
     elem: [2]f32,
     vec: @Vector(2, f32),
-    xy: Vec2,
+    xy: @This().Vec2,
     uv: TexCoords,
 
     pub inline fn x(self: Float2) f32 {
@@ -164,7 +66,7 @@ pub const Float2 = extern union {
 pub const Float3 = extern union {
     elem: [3]f32,
     vec: @Vector(3, f32),
-    xyz: Vec3,
+    xyz: @This().Vec3,
     rgb: Color3,
 
     pub inline fn x(self: Float3) f32 {
@@ -211,11 +113,11 @@ pub const Float3 = extern union {
 pub const Float4 = extern union {
     elem: [4]f32,
     vec: @Vector(4, f32),
-    xyzw: Vec4,
+    xyzw: @This().Vec4,
     rgba: Color4,
-    xyz: Vec3,
+    xyz: @This().Vec3,
     rgb: Color3,
-    xy: Vec2,
+    xy: @This().Vec2,
     uv: TexCoords,
 
     pub inline fn x(self: Float4) f32 {

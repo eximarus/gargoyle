@@ -41,6 +41,15 @@ pub inline fn imageViewCreateInfo(
     };
 }
 
+pub inline fn commandBufferBeginInfo(
+    flags: c.VkCommandBufferUsageFlags,
+) c.VkCommandBufferBeginInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = flags,
+    };
+}
+
 pub inline fn commandBufferSubmitInfo(
     cmd: vk.CommandBuffer,
 ) c.VkCommandBufferSubmitInfo {
@@ -48,6 +57,18 @@ pub inline fn commandBufferSubmitInfo(
         .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
         .commandBuffer = cmd.handle(),
         .deviceMask = 0,
+    };
+}
+
+pub inline fn commandBufferAllocateInfo(
+    pool: vk.CommandPool,
+    count: u32,
+) c.VkCommandBufferAllocateInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = pool,
+        .commandBufferCount = count,
+        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
     };
 }
 

@@ -12,10 +12,6 @@ const pipelines = @import("pipelines.zig");
 const math = @import("../../math/math.zig");
 const types = @import("types.zig");
 
-const AllocatedImage = types.AllocatedImage;
-const AllocatedBuffer = types.AllocatedBuffer;
-const DescriptorLayoutBuilder = descriptors.DescriptorLayoutBuilder;
-const DescriptorAllocator = descriptors.DescriptorAllocator;
 const Config = @import("../../core/app_config.zig").RenderConfig;
 const CString = common.CString;
 const Window = @import("../../core/window.zig").Window;
@@ -71,9 +67,9 @@ frame_overlap: usize = 2,
 
 vma_allocator: vma.Allocator,
 
-global_descriptor_allocator: DescriptorAllocator,
+global_descriptor_pool: vk.DescriptorPool,
 
-draw_image: AllocatedImage,
+draw_image: types.Image,
 draw_extent: c.VkExtent2D,
 draw_image_descriptors: vk.DescriptorSet,
 draw_image_descriptor_layout: vk.DescriptorSetLayout,
@@ -89,8 +85,9 @@ imm_descriptor_pool: vk.DescriptorPool,
 background_effects: std.ArrayList(ComputeEffect),
 current_background_effect: i32 = 0,
 
-triangle_pipeline_layout: vk.PipelineLayout,
-triangle_pipeline: vk.Pipeline,
+mesh_pipeline_layout: vk.PipelineLayout,
+mesh_pipeline: vk.Pipeline,
+mesh: types.Mesh,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -214,11 +211,35 @@ pub fn init(
 
     try self.initCommands();
     try self.initSync();
-    try self.initDescriptors(allocator);
+    try self.initDescriptors();
     try self.initPipelines();
     try self.initImgui(window);
 
+    try self.initDefaultData();
     return self;
+}
+
+fn initDefaultData(self: *VulkanRenderer) !void {
+    const vertices = [_]types.Vertex{
+        types.Vertex{
+            .position = math.vec3(0.5, -0.5, 0),
+            .color = math.color4(0.0, 0.0, 0.0, 1.0),
+        },
+        types.Vertex{
+            .position = math.vec3(0.5, 0.5, 0),
+            .color = math.color4(0.5, 0.5, 0.5, 1.0),
+        },
+        types.Vertex{
+            .position = math.vec3(-0.5, -0.5, 0),
+            .color = math.color4(1.0, 0.0, 0.0, 1.0),
+        },
+        types.Vertex{
+            .position = math.vec3(-0.5, 0.5, 0),
+            .color = math.color4(0.0, 1.0, 0.0, 1.0),
+        },
+    };
+    const indices = [_]u32{ 0, 1, 2, 2, 1, 3 };
+    self.mesh = try self.uploadMesh(&indices, &vertices);
 }
 
 fn createVkDevice(self: *VulkanRenderer, arena: std.mem.Allocator) !void {
@@ -297,39 +318,45 @@ fn initCommands(self: *VulkanRenderer) !void {
             null,
         );
 
-        frame.command_buffer = try self.device.allocateCommandBuffers(&.{
-            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = frame.command_pool,
-            .commandBufferCount = 1,
-            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        });
+        frame.command_buffer = try self.device.allocateCommandBuffers(
+            &vkinit.commandBufferAllocateInfo(frame.command_pool, 1),
+        );
     }
+
+    self.imm_command_pool = try self.device.createCommandPool(
+        &command_pool_info,
+        null,
+    );
+    self.imm_command_buffer = try self.device.allocateCommandBuffers(
+        &vkinit.commandBufferAllocateInfo(self.imm_command_pool, 1),
+    );
 }
 
-fn initDescriptors(self: *VulkanRenderer, allocator: std.mem.Allocator) !void {
-    try self.global_descriptor_allocator.initPool(
+fn initDescriptors(self: *VulkanRenderer) !void {
+    self.global_descriptor_pool = try descriptors.createPool(
         self.device,
         10,
+        1,
         &.{
             .{ .desc_type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .ratio = 1 },
         },
-        allocator,
     );
 
-    var builder = DescriptorLayoutBuilder{
-        .bindings = std.ArrayList(c.VkDescriptorSetLayoutBinding).init(allocator),
-    };
-    defer builder.bindings.deinit();
-
-    try builder.addBinding(0, c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    self.draw_image_descriptor_layout = try builder.build(
+    self.draw_image_descriptor_layout = try descriptors.createLayout(
         self.device,
         c.VK_SHADER_STAGE_COMPUTE_BIT,
         null,
         0,
+        @constCast(&[_]c.VkDescriptorSetLayoutBinding{
+            descriptors.layoutBinding(
+                0,
+                c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            ),
+        }),
     );
 
-    self.draw_image_descriptors = try self.global_descriptor_allocator.allocate(
+    self.draw_image_descriptors = try descriptors.allocate(
+        self.global_descriptor_pool,
         self.device,
         self.draw_image_descriptor_layout,
     );
@@ -434,14 +461,22 @@ fn initPipelines(self: *VulkanRenderer) !void {
     );
     defer self.device.destroyShaderModule(triangle_vertex_shader, null);
 
-    self.triangle_pipeline_layout = try self.device.createPipelineLayout(&vkinit.pipelineLayoutCreateInfo(), null);
+    var pipline_layout_info = vkinit.pipelineLayoutCreateInfo();
+    pipline_layout_info.pushConstantRangeCount = 1;
+    pipline_layout_info.pPushConstantRanges = &c.VkPushConstantRange{
+        .offset = 0,
+        .size = @sizeOf(types.DrawPushConstants),
+        .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+    };
 
-    self.triangle_pipeline = try pipelines.pipeline(self.device, &.{
+    self.mesh_pipeline_layout = try self.device.createPipelineLayout(&pipline_layout_info, null);
+
+    self.mesh_pipeline = try pipelines.pipeline(self.device, &.{
         .shaders = .{
             .vertex_shader = triangle_vertex_shader,
             .fragment_shader = triangle_frag_shader,
         },
-        .pipeline_layout = self.triangle_pipeline_layout,
+        .pipeline_layout = self.mesh_pipeline_layout,
         .input_topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .polygon_mode = c.VK_POLYGON_MODE_FILL,
         .cull_mode = .{
@@ -464,6 +499,8 @@ fn initSync(self: *VulkanRenderer) !void {
         frame.swapchain_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
         frame.render_semaphore = try self.device.createSemaphore(&sempahore_create_info, null);
     }
+
+    self.imm_fence = try self.device.createFence(&fence_create_info, null);
 }
 
 fn initImgui(self: *VulkanRenderer, window: Window) !void {
@@ -518,8 +555,8 @@ fn createBuffer(
     alloc_size: usize,
     usage: c.VkBufferUsageFlags,
     memory_usage: c.VmaMemoryUsage,
-) AllocatedBuffer {
-    var new_buffer: AllocatedBuffer = undefined;
+) !types.Buffer {
+    var new_buffer: types.Buffer = undefined;
     new_buffer.buffer, new_buffer.allocation = try self.vma_allocator.createBuffer(
         &c.VkBufferCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -683,6 +720,115 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
     self.frame_number += 1;
 }
 
+pub fn uploadMesh(
+    self: *VulkanRenderer,
+    indices: []const u32,
+    vertices: []const types.Vertex,
+) !types.Mesh {
+    const vb_size = vertices.len * @sizeOf(types.Vertex);
+    const ib_size = indices.len * @sizeOf(u32);
+
+    var mesh: types.Mesh = undefined;
+    mesh.vertex_buffer = try self.createBuffer(
+        vb_size,
+        c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        c.VMA_MEMORY_USAGE_GPU_ONLY,
+    );
+    mesh.vb_addr = self.device.getBufferDeviceAddress(
+        &c.VkBufferDeviceAddressInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = mesh.vertex_buffer.buffer,
+        },
+    );
+    mesh.index_buffer = try self.createBuffer(
+        ib_size,
+        c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        c.VMA_MEMORY_USAGE_GPU_ONLY,
+    );
+
+    const staging = try self.createBuffer(
+        vb_size + ib_size,
+        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        c.VMA_MEMORY_USAGE_CPU_ONLY,
+    );
+
+    var data: [*]u8 = @ptrCast(try self.vma_allocator.mapMemory(staging.allocation));
+    @memcpy(data, std.mem.sliceAsBytes(vertices));
+    @memcpy(data[vb_size..], std.mem.sliceAsBytes(indices));
+    self.vma_allocator.unmapMemory(staging.allocation);
+
+    try self.immediateSubmit(struct {
+        vertex_buffer: vk.Buffer,
+        vb_size: usize,
+        index_buffer: vk.Buffer,
+        ib_size: usize,
+        staging_buffer: vk.Buffer,
+
+        pub fn submit(this: @This(), cmd: vk.CommandBuffer) void {
+            const vertex_copy = c.VkBufferCopy{
+                .dstOffset = 0,
+                .srcOffset = 0,
+                .size = this.vb_size,
+            };
+
+            cmd.copyBuffer(this.staging_buffer, this.vertex_buffer, &.{vertex_copy});
+
+            const index_copy = c.VkBufferCopy{
+                .dstOffset = 0,
+                .srcOffset = this.vb_size,
+                .size = this.ib_size,
+            };
+
+            cmd.copyBuffer(this.staging_buffer, this.index_buffer, &.{index_copy});
+        }
+    }{
+        .vertex_buffer = mesh.vertex_buffer.buffer,
+        .vb_size = vb_size,
+        .index_buffer = mesh.index_buffer.buffer,
+        .ib_size = ib_size,
+        .staging_buffer = staging.buffer,
+    });
+
+    self.vma_allocator.destroyBuffer(staging.buffer, staging.allocation);
+
+    return mesh;
+}
+
+fn immediateSubmit(self: *VulkanRenderer, context: anytype) !void {
+    try vk.check(self.device.resetFences(&.{self.imm_fence}));
+    try vk.check(self.imm_command_buffer.reset(0));
+
+    const cmd = self.imm_command_buffer;
+
+    try vk.check(cmd.begin(&vkinit.commandBufferBeginInfo(
+        c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    )));
+
+    const ctx_type = @TypeOf(context);
+    if (!@hasDecl(ctx_type, "submit")) {
+        @compileError("context should have a submit method");
+    }
+
+    if (@TypeOf(@field(ctx_type, "submit")) != fn (ctx_type, vk.CommandBuffer) void) {
+        @compileError("context submit has wrong signature. expected: submit(self: @This(), cmd: vk.CommandBuffer) void");
+    }
+
+    context.submit(cmd);
+
+    try vk.check(cmd.end());
+
+    const submit = vkinit.submitInfo(
+        &.{vkinit.commandBufferSubmitInfo(cmd)},
+        &.{},
+        &.{},
+    );
+
+    try vk.check(self.graphics_queue.submit2(&.{submit}, self.imm_fence));
+    try vk.check(self.device.waitForFences(&.{self.imm_fence}, true, 9999999999));
+}
+
 pub fn onWindowResize(self: *VulkanRenderer, width: u32, height: u32) void {
     _ = self;
     _ = width;
@@ -705,10 +851,10 @@ pub fn deinit(self: *VulkanRenderer) void {
     self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
 
     self.device.destroyDescriptorSetLayout(self.draw_image_descriptor_layout, null);
-    self.device.destroyDescriptorPool(self.global_descriptor_allocator.pool, null);
+    self.device.destroyDescriptorPool(self.global_descriptor_pool, null);
 
-    self.device.destroyPipelineLayout(self.triangle_pipeline_layout, null);
-    self.device.destroyPipeline(self.triangle_pipeline, null);
+    self.device.destroyPipelineLayout(self.mesh_pipeline_layout, null);
+    self.device.destroyPipeline(self.mesh_pipeline, null);
 
     self.device.destroyPipelineLayout(self.gradient_pipeline_layout, null);
     for (self.background_effects.items) |*effect| {
@@ -722,6 +868,19 @@ pub fn deinit(self: *VulkanRenderer) void {
         self.draw_image.allocation,
     );
 
+    self.vma_allocator.destroyBuffer(
+        self.mesh.vertex_buffer.buffer,
+        self.mesh.vertex_buffer.allocation,
+    );
+
+    self.vma_allocator.destroyBuffer(
+        self.mesh.index_buffer.buffer,
+        self.mesh.index_buffer.allocation,
+    );
+
+    self.device.destroyFence(self.imm_fence, null);
+
+    self.device.destroyCommandPool(self.imm_command_pool, null);
     for (self.frames) |*frame| {
         self.device.destroyCommandPool(frame.command_pool, null);
         self.device.destroyFence(frame.render_fence, null);
