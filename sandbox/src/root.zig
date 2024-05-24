@@ -19,8 +19,8 @@ pub const App = struct {
         out_config.window.title = "sandbox";
         out_config.window.mode = .windowed;
         out_config.window.size = @constCast(&.{
-            .width = 800,
-            .height = 600,
+            .width = 1700,
+            .height = 900,
         });
 
         std.log.info("sandbox init\n", .{});

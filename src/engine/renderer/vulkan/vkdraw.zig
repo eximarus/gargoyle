@@ -114,7 +114,10 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
             self.draw_image.image_view,
             null,
             c.VK_IMAGE_LAYOUT_GENERAL,
-        ), null),
+        ), &vkinit.depthAttachmentInfo(
+            self.depth_image.image_view,
+            c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        )),
     );
 
     cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.mesh_pipeline);
@@ -142,9 +145,22 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         },
     });
 
-    const push_constants = types.DrawPushConstants{
-        .world_matrix = math.Mat4.identity(),
-        .vertex_buffer = self.mesh.vb_addr,
+    const view = math.Mat4.translation(math.vec3(0.0, 0.0, -5.0));
+    var projection = math.Mat4.perspective(
+        math.degreesToRadians(70.0),
+        @as(f32, @floatFromInt(self.draw_extent.width)) /
+            @as(f32, @floatFromInt(self.draw_extent.height)),
+        10000.0,
+        0.1,
+        // 0.3,
+        // 1000,
+    );
+    projection.data[5] *= -1;
+
+    const mesh_asset = self.test_meshes[2];
+    var push_constants = types.DrawPushConstants{
+        .world_matrix = projection.mul(view),
+        .vertex_buffer = mesh_asset.mesh.vb_addr,
     };
 
     cmd.pushConstants(
@@ -155,8 +171,9 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         &push_constants,
     );
 
-    cmd.bindIndexBuffer(self.mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    cmd.drawIndexed(6, 1, 0, 0, 0);
+    cmd.bindIndexBuffer(mesh_asset.mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
+    const surface = mesh_asset.surfaces[0];
+    cmd.drawIndexed(surface.count, 1, surface.start_index, 0, 0);
     cmd.endRendering();
 }
 

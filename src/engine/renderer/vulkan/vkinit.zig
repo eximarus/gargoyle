@@ -116,6 +116,24 @@ pub inline fn attachmentInfo(
     };
 }
 
+pub inline fn depthAttachmentInfo(
+    view: vk.ImageView,
+    layout: c.VkImageLayout,
+) c.VkRenderingAttachmentInfo {
+    return .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = view,
+        .imageLayout = layout,
+        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = .{
+            .depthStencil = .{
+                .depth = 0.0,
+            },
+        },
+    };
+}
+
 pub inline fn fenceCreateInfo(flags: c.VkFenceCreateFlags) c.VkFenceCreateInfo {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,

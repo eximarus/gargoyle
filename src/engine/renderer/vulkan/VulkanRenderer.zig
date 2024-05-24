@@ -11,6 +11,7 @@ const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
 const math = @import("../../math/math.zig");
 const types = @import("types.zig");
+const loader = @import("loader.zig");
 
 const Config = @import("../../core/app_config.zig").RenderConfig;
 const CString = common.CString;
@@ -69,6 +70,7 @@ vma_allocator: vma.Allocator,
 
 global_descriptor_pool: vk.DescriptorPool,
 
+depth_image: types.Image,
 draw_image: types.Image,
 draw_extent: c.VkExtent2D,
 draw_image_descriptors: vk.DescriptorSet,
@@ -88,6 +90,7 @@ current_background_effect: i32 = 0,
 mesh_pipeline_layout: vk.PipelineLayout,
 mesh_pipeline: vk.Pipeline,
 mesh: types.Mesh,
+test_meshes: []loader.MeshAssets,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -206,6 +209,32 @@ pub fn init(
         null,
     );
 
+    self.depth_image.image_format = c.VK_FORMAT_D32_SFLOAT;
+    self.depth_image.image_extent = draw_image_extent;
+    const depth_image_usages = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    self.depth_image.image, self.depth_image.allocation = try self.vma_allocator.createImage(
+        &vkinit.imageCreateInfo(
+            self.depth_image.image_format,
+            depth_image_usages,
+            draw_image_extent,
+        ),
+        &.{
+            .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        },
+        null,
+    );
+
+    self.depth_image.image_view = try self.device.createImageView(
+        &vkinit.imageViewCreateInfo(
+            self.depth_image.image_format,
+            self.depth_image.image,
+            c.VK_IMAGE_ASPECT_DEPTH_BIT,
+        ),
+        null,
+    );
+
     self.current_background_effect = 0;
     self.background_effects = std.ArrayList(ComputeEffect).init(allocator);
 
@@ -240,6 +269,8 @@ fn initDefaultData(self: *VulkanRenderer) !void {
     };
     const indices = [_]u32{ 0, 1, 2, 2, 1, 3 };
     self.mesh = try self.uploadMesh(&indices, &vertices);
+
+    self.test_meshes = try loader.loadGltfMeshes(self, "basicmesh.glb");
 }
 
 fn createVkDevice(self: *VulkanRenderer, arena: std.mem.Allocator) !void {
@@ -484,9 +515,12 @@ fn initPipelines(self: *VulkanRenderer) !void {
             .front_face = c.VK_FRONT_FACE_CLOCKWISE,
         },
         .blending = .none,
-        .depth_test = null,
+        .depth_test = .{
+            .depth_write_enable = true,
+            .op = c.VK_COMPARE_OP_GREATER_OR_EQUAL,
+        },
         .color_attachment_format = self.draw_image.image_format,
-        .depth_format = c.VK_FORMAT_UNDEFINED,
+        .depth_format = self.depth_image.image_format,
     });
 }
 
@@ -868,6 +902,11 @@ pub fn deinit(self: *VulkanRenderer) void {
         self.draw_image.allocation,
     );
 
+    self.vma_allocator.destroyImage(
+        self.depth_image.image,
+        self.depth_image.allocation,
+    );
+
     self.vma_allocator.destroyBuffer(
         self.mesh.vertex_buffer.buffer,
         self.mesh.vertex_buffer.allocation,
@@ -877,6 +916,15 @@ pub fn deinit(self: *VulkanRenderer) void {
         self.mesh.index_buffer.buffer,
         self.mesh.index_buffer.allocation,
     );
+
+    for (self.test_meshes) |mesh_asset| {
+        self.vma_allocator.destroyBuffer(
+            mesh_asset.mesh.index_buffer.buffer,
+            mesh_asset.mesh.index_buffer.allocation,
+        );
+        self.allocator.free(mesh_asset.surfaces);
+    }
+    self.allocator.free(self.test_meshes);
 
     self.device.destroyFence(self.imm_fence, null);
 

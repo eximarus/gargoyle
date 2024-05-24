@@ -5,10 +5,6 @@
         .sdl_win32 = .{
             .path = "./lib/win32/SDL2-2.0.20",
         },
-        // .sdl = .{
-        //     .url = "https://github.com/andrewrk/SDL/archive/db4a162db2f6f59f737d03f441455dc9524d5793.tar.gz",
-        //     .hash = "1220c5360c9c71c215baa41b46ec18d0711059b48416a2b1cf96c7c2d87b2e8e4cf6",
-        // },
         .box2d = .{
             .url = "https://github.com/erincatto/box2c/archive/29adfcfb4dbc371a50e37d8e17b072d990ad7ae6.tar.gz",
             .hash = "1220d5585357ae14c92268925417fb6e35a63a2f3b8a8ee8893aa8e74f980978680b",
@@ -39,6 +35,10 @@
         .tinyobjloader = .{
             .url = "https://github.com/syoyo/tinyobjloader-c/archive/97e752527ffcac637e8929744699a82ea28f8624.tar.gz",
             .hash = "1220bef692ff3284c9694b8e56610fda47878fdd151775c853300a435b10a53b43fe",
+        },
+        .cgltf = .{
+            .url = "https://github.com/jkuhlmann/cgltf/archive/v1.14.tar.gz",
+            .hash = "12209ac27a63c8a2eeb5691f139eaa1d7d1fcee223e8fa9763da3a592253c6b57032",
         },
     },
     .paths = .{

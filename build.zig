@@ -63,6 +63,7 @@ pub fn build(b: *std.Build) !void {
     linkWin32(b, gargoyle_mod);
     linkStb(b, gargoyle_mod);
     linkImgui(b, gargoyle_mod);
+    linkCgltf(b, gargoyle_mod);
     linkBox2d(b, gargoyle_mod);
 
     const app_lib = b.addSharedLibrary(.{
@@ -236,6 +237,17 @@ fn linkStb(b: *std.Build, obj: *std.Build.Module) void {
         .flags = &.{
             "-std=c89",
             "-msse2",
+        },
+    });
+}
+
+fn linkCgltf(b: *std.Build, obj: *std.Build.Module) void {
+    const dep = b.dependency("cgltf", .{});
+    obj.addIncludePath(dep.path(""));
+    obj.addCSourceFile(.{
+        .file = b.path("src/engine/vendor/cgltf.c"),
+        .flags = &.{
+            "-std=c99",
         },
     });
 }

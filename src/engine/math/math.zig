@@ -5,6 +5,7 @@ pub usingnamespace @import("vec2.zig");
 pub usingnamespace @import("vec3.zig");
 pub usingnamespace @import("vec4.zig");
 pub usingnamespace @import("quat.zig");
+pub usingnamespace @import("mat2.zig");
 pub usingnamespace @import("mat3.zig");
 pub usingnamespace @import("mat4.zig");
 

@@ -12,6 +12,8 @@ pub usingnamespace @cImport({
 
     @cInclude("stb_image.h");
 
+    @cInclude("cgltf.h");
+
     @cDefine("CIMGUI_DEFINE_ENUMS_AND_STRUCTS", "");
     @cDefine("CIMGUI_USE_VULKAN", "");
     @cDefine("CIMGUI_USE_SDL2", "");
