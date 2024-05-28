@@ -124,9 +124,19 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: common.CString) ![]MeshAs
                 } else {
                     vertex.color = math.color4(1.0, 1.0, 1.0, 1.0);
                 }
+
+                vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
+                vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
             }
             vertices.items.len += posAccessor.count;
         }
+
+        // flip indices for left handed system
+        var i: usize = 0;
+        while (i < indices.items.len) : (i += 3) {
+            std.mem.swap(u32, &indices.items[i], &indices.items[i + 2]);
+        }
+
         // display the vertex normals
         const override_colors = true;
         if (override_colors) {
@@ -134,6 +144,7 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: common.CString) ![]MeshAs
                 vtx.color = math.color4(vtx.normal.x, vtx.normal.y, vtx.normal.z, 1.0);
             }
         }
+
         mesh_assets.mesh = try renderer.uploadMesh(indices.items, vertices.items);
     }
     return meshes;

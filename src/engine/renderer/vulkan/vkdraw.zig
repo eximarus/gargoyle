@@ -1,4 +1,5 @@
 const std = @import("std");
+const time = @import("../../core/time.zig");
 const config = @import("config");
 const c = @import("../../c.zig");
 const vk = @import("vulkan.zig");
@@ -9,9 +10,8 @@ const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
 const types = @import("types.zig");
-const VulkanRenderer = @import("VulkanRenderer.zig");
 const math = @import("../../math/math.zig");
-const CString = common.CString;
+const VulkanRenderer = @import("VulkanRenderer.zig");
 
 pub fn background(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
     cmd.clearColorImage(
@@ -108,25 +108,32 @@ pub inline fn transitionImage(
     });
 }
 
+var frame: u32 = 0;
+
 pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
     cmd.beginRendering(
-        &vkinit.renderingInfo(self.draw_extent, &vkinit.attachmentInfo(
-            self.draw_image.image_view,
-            null,
-            c.VK_IMAGE_LAYOUT_GENERAL,
-        ), &vkinit.depthAttachmentInfo(
-            self.depth_image.image_view,
-            c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        )),
+        &vkinit.renderingInfo(
+            self.draw_extent,
+            &vkinit.attachmentInfo(
+                self.draw_image.image_view,
+                null,
+                c.VK_IMAGE_LAYOUT_GENERAL,
+            ),
+            &vkinit.depthAttachmentInfo(
+                self.depth_image.image_view,
+                c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            ),
+        ),
     );
 
     cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.mesh_pipeline);
+    const viewport_height: f32 = @floatFromInt(self.draw_extent.height);
     cmd.setViewport(0, &.{
         c.VkViewport{
             .x = 0,
-            .y = 0,
+            .y = viewport_height,
             .width = @floatFromInt(self.draw_extent.width),
-            .height = @floatFromInt(self.draw_extent.height),
+            .height = -viewport_height,
             .minDepth = 0.0,
             .maxDepth = 1.0,
         },
@@ -134,10 +141,7 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
 
     cmd.setScissor(0, &.{
         c.VkRect2D{
-            .offset = .{
-                .x = 0,
-                .y = 0,
-            },
+            .offset = .{ .x = 0, .y = 0 },
             .extent = .{
                 .width = self.draw_extent.width,
                 .height = self.draw_extent.height,
@@ -145,21 +149,27 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         },
     });
 
-    const view = math.Mat4.translation(math.vec3(0.0, 0.0, -5.0));
-    var projection = math.Mat4.perspective(
-        math.degreesToRadians(70.0),
-        @as(f32, @floatFromInt(self.draw_extent.width)) /
-            @as(f32, @floatFromInt(self.draw_extent.height)),
-        10000.0,
-        0.1,
-        // 0.3,
-        // 1000,
+    const model = math.Mat4.scaling(math.vec3(1.5, 1.5, 1.5)).mul(
+        math.Mat4.rotation(math.Quat.fromAxisAngle(math.vec3(0, 0, 1), math.degToRad(45))),
+    ).mul(math.Mat4.translation(math.vec3(0.0, 0.0, 0.0)));
+
+    const view = math.Mat4.lookAt(
+        math.vec3(0, 0.0, -5.0),
+        math.vec3(0, 0.0, 0.0),
+        math.vec3(0, 1.0, 0.0),
     );
-    projection.data[5] *= -1;
+
+    const projection = math.Mat4.perspective(
+        math.degToRad(60.0),
+        @floatFromInt(self.draw_extent.width),
+        @floatFromInt(self.draw_extent.height),
+        0.3,
+        100.0,
+    );
 
     const mesh_asset = self.test_meshes[2];
     var push_constants = types.DrawPushConstants{
-        .world_matrix = projection.mul(view),
+        .world_matrix = projection.mul(view.mul(model)),
         .vertex_buffer = mesh_asset.mesh.vb_addr,
     };
 

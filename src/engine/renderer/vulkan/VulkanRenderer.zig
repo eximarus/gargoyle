@@ -89,7 +89,6 @@ current_background_effect: i32 = 0,
 
 mesh_pipeline_layout: vk.PipelineLayout,
 mesh_pipeline: vk.Pipeline,
-mesh: types.Mesh,
 test_meshes: []loader.MeshAssets,
 
 pub fn init(
@@ -249,27 +248,6 @@ pub fn init(
 }
 
 fn initDefaultData(self: *VulkanRenderer) !void {
-    const vertices = [_]types.Vertex{
-        types.Vertex{
-            .position = math.vec3(0.5, -0.5, 0),
-            .color = math.color4(0.0, 0.0, 0.0, 1.0),
-        },
-        types.Vertex{
-            .position = math.vec3(0.5, 0.5, 0),
-            .color = math.color4(0.5, 0.5, 0.5, 1.0),
-        },
-        types.Vertex{
-            .position = math.vec3(-0.5, -0.5, 0),
-            .color = math.color4(1.0, 0.0, 0.0, 1.0),
-        },
-        types.Vertex{
-            .position = math.vec3(-0.5, 0.5, 0),
-            .color = math.color4(0.0, 1.0, 0.0, 1.0),
-        },
-    };
-    const indices = [_]u32{ 0, 1, 2, 2, 1, 3 };
-    self.mesh = try self.uploadMesh(&indices, &vertices);
-
     self.test_meshes = try loader.loadGltfMeshes(self, "basicmesh.glb");
 }
 
@@ -511,14 +489,15 @@ fn initPipelines(self: *VulkanRenderer) !void {
         .input_topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         .polygon_mode = c.VK_POLYGON_MODE_FILL,
         .cull_mode = .{
-            .flags = c.VK_CULL_MODE_NONE,
+            .flags = c.VK_CULL_MODE_BACK_BIT,
             .front_face = c.VK_FRONT_FACE_CLOCKWISE,
         },
         .blending = .none,
-        .depth_test = .{
-            .depth_write_enable = true,
-            .op = c.VK_COMPARE_OP_GREATER_OR_EQUAL,
-        },
+        .depth_test = null,
+        // .depth_test = .{
+        //     .depth_write_enable = true,
+        //     .op = c.VK_COMPARE_OP_LESS_OR_EQUAL,
+        // },
         .color_attachment_format = self.draw_image.image_format,
         .depth_format = self.depth_image.image_format,
     });
@@ -907,20 +886,14 @@ pub fn deinit(self: *VulkanRenderer) void {
         self.depth_image.allocation,
     );
 
-    self.vma_allocator.destroyBuffer(
-        self.mesh.vertex_buffer.buffer,
-        self.mesh.vertex_buffer.allocation,
-    );
-
-    self.vma_allocator.destroyBuffer(
-        self.mesh.index_buffer.buffer,
-        self.mesh.index_buffer.allocation,
-    );
-
     for (self.test_meshes) |mesh_asset| {
         self.vma_allocator.destroyBuffer(
             mesh_asset.mesh.index_buffer.buffer,
             mesh_asset.mesh.index_buffer.allocation,
+        );
+        self.vma_allocator.destroyBuffer(
+            mesh_asset.mesh.vertex_buffer.buffer,
+            mesh_asset.mesh.vertex_buffer.allocation,
         );
         self.allocator.free(mesh_asset.surfaces);
     }

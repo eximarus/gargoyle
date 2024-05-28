@@ -92,8 +92,8 @@ pub inline fn pipeline(
         .stencilTestEnable = c.VK_FALSE,
         .front = .{},
         .back = .{},
-        .minDepthBounds = 0.0,
-        .maxDepthBounds = 1.0,
+        // .minDepthBounds = 0.0,
+        // .maxDepthBounds = 1.0,
     };
 
     if (info.depth_test) |depth_test| {
