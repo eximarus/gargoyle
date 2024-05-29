@@ -880,6 +880,7 @@ pub fn deinit(self: *VulkanRenderer) void {
         self.draw_image.allocation,
     );
 
+    self.device.destroyImageView(self.depth_image.image_view, null);
     self.vma_allocator.destroyImage(
         self.depth_image.image,
         self.depth_image.allocation,
