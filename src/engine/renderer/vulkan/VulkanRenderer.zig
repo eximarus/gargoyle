@@ -493,11 +493,10 @@ fn initPipelines(self: *VulkanRenderer) !void {
             .front_face = c.VK_FRONT_FACE_CLOCKWISE,
         },
         .blending = .none,
-        .depth_test = null,
-        // .depth_test = .{
-        //     .depth_write_enable = true,
-        //     .op = c.VK_COMPARE_OP_LESS_OR_EQUAL,
-        // },
+        .depth_test = .{
+            .depth_write_enable = true,
+            .op = c.VK_COMPARE_OP_LESS,
+        },
         .color_attachment_format = self.draw_image.image_format,
         .depth_format = self.depth_image.image_format,
     });

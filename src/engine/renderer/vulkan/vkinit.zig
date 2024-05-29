@@ -128,7 +128,7 @@ pub inline fn depthAttachmentInfo(
         .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = .{
             .depthStencil = .{
-                .depth = 0.0,
+                .depth = 1.0,
             },
         },
     };
