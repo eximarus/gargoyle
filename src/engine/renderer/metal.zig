@@ -1,7 +1,7 @@
 const std = @import("std");
 const wgpu = @import("mach-gpu");
 const builtin = @import("builtin");
-const c = @import("../c.zig");
+const c = @import("c");
 const target = builtin.target;
 
 const objc = struct {

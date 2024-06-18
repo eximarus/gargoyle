@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../../c.zig");
+const c = @import("c");
 const vk = @import("vulkan.zig");
 const CString = @import("common.zig").CString;
 
@@ -89,7 +89,7 @@ pub inline fn submitInfo(
     cmd_buffer_infos: []const c.VkCommandBufferSubmitInfo,
     signal_semaphore_infos: []const c.VkSemaphoreSubmitInfo,
     wait_semaphore_infos: []const c.VkSemaphoreSubmitInfo,
-) c.VkSubmitInfo2 {
+) c.VkSubmitInfo2KHR {
     return .{
         .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
         .waitSemaphoreInfoCount = @intCast(wait_semaphore_infos.len),
@@ -166,9 +166,9 @@ pub inline fn renderingInfo(
     render_extent: c.VkExtent2D,
     color_attachment: *const c.VkRenderingAttachmentInfo,
     depth_attachment: ?*const c.VkRenderingAttachmentInfo,
-) c.VkRenderingInfo {
+) c.VkRenderingInfoKHR {
     return .{
-        .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
         .renderArea = c.VkRect2D{
             .offset = c.VkOffset2D{ .x = 0, .y = 0 },
             .extent = render_extent,

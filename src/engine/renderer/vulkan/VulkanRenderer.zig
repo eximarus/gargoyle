@@ -1,6 +1,6 @@
 const std = @import("std");
 const config = @import("config");
-const c = @import("../../c.zig");
+const c = @import("c");
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
 const vkdraw = @import("vkdraw.zig");
@@ -20,6 +20,24 @@ const Swapchain = @import("Swapchain.zig");
 const Instance = @import("Instance.zig");
 const PhysicalDevice = @import("PhysicalDevice.zig");
 const App = @import("../../core/app_types.zig").App;
+
+const required_device_extensions: []const CString = &.{
+    c.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    c.VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+    c.VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+    c.VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
+    c.VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+    c.VK_EXT_MESH_SHADER_EXTENSION_NAME,
+
+    // TODO optional extensions when available
+    // these dont work in wsl
+    // ray tracing
+    // c.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    // c.VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+
+    // required for VK_KHR_acceleration_structure
+    // c.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+};
 
 const VulkanRenderer = @This();
 
@@ -114,7 +132,7 @@ pub fn init(
     const bootstrap_inst = try Instance.init(arena, &.{
         .app_name = @ptrCast(config.app_name),
         .request_validation_layers = true,
-        .required_api_ver = c.VK_MAKE_VERSION(1, 3, 0),
+        .required_api_ver = c.VK_MAKE_VERSION(1, 2, 197),
         .extensions = window_extensions,
     });
     self.instance = bootstrap_inst.instance;
@@ -265,7 +283,17 @@ fn createVkDevice(self: *VulkanRenderer, arena: std.mem.Allocator) !void {
                 c.VK_QUEUE_GRAPHICS_BIT != 0;
             if (graphics_bit and supports_present) {
                 self.graphics_queue_family = index;
-                if (gpu.getProperties().deviceType ==
+
+                // var rt_props = c.VkPhysicalDeviceRayTracingPipelinePropertiesKHR{
+                //     .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
+                // };
+                //
+                // var accel_props = c.VkPhysicalDeviceAccelerationStructurePropertiesKHR{
+                //     .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
+                //     .pNext = &rt_props,
+                // };
+
+                if (gpu.getProperties2(null).deviceType ==
                     c.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
                 {
                     break;
@@ -278,25 +306,48 @@ fn createVkDevice(self: *VulkanRenderer, arena: std.mem.Allocator) !void {
     }
     const device_extensions =
         try self.gpu.enumerateDeviceExtensionProperties(arena);
-    const required_device_extensions: []const CString = &.{
-        "VK_KHR_swapchain",
-    };
+
     try common.validateExtensions(device_extensions, required_device_extensions);
+    var features11 = c.VkPhysicalDeviceVulkan11Features{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+    };
+
     var features12 = c.VkPhysicalDeviceVulkan12Features{
+        .pNext = &features11,
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .bufferDeviceAddress = c.VK_TRUE,
         .descriptorIndexing = c.VK_TRUE,
     };
-    var features13 = c.VkPhysicalDeviceVulkan13Features{
-        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+
+    var shader_obj = c.VkPhysicalDeviceShaderObjectFeaturesEXT{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
         .pNext = &features12,
-        .dynamicRendering = c.VK_TRUE,
+        .shaderObject = c.VK_TRUE,
+    };
+
+    var synchronization2 = c.VkPhysicalDeviceSynchronization2FeaturesKHR{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+        .pNext = &shader_obj,
         .synchronization2 = c.VK_TRUE,
     };
+
+    var mesh_shader = c.VkPhysicalDeviceMeshShaderFeaturesEXT{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+        .pNext = &synchronization2,
+        .meshShader = c.VK_TRUE,
+        .taskShader = c.VK_TRUE,
+    };
+
+    var dynamic_rendering = c.VkPhysicalDeviceDynamicRenderingFeaturesKHR{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+        .pNext = &mesh_shader,
+        .dynamicRendering = c.VK_TRUE,
+    };
+
     var queue_priority: f32 = 1.0;
     const device_info = c.VkDeviceCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &features13,
+        .pNext = &dynamic_rendering,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &c.VkDeviceQueueCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,

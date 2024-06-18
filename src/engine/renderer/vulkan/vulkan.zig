@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../../c.zig");
+const c = @import("c");
 const common = @import("common.zig");
 const CString = common.CString;
 
@@ -219,12 +219,29 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         return supports_present != 0;
     }
 
-    pub inline fn getProperties(
+    pub inline fn getProperties2(
         self: PhysicalDevice,
+        next: ?*anyopaque,
     ) c.VkPhysicalDeviceProperties {
-        var props: c.VkPhysicalDeviceProperties = undefined;
-        c.vkGetPhysicalDeviceProperties.?(self.handle(), @ptrCast(&props));
-        return props;
+        var props = c.VkPhysicalDeviceProperties2{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = next,
+        };
+
+        c.vkGetPhysicalDeviceProperties2.?(self.handle(), @ptrCast(&props));
+        return props.properties;
+    }
+
+    pub inline fn getFeatures2(
+        self: PhysicalDevice,
+        next: ?*anyopaque,
+    ) c.VkPhysicalDeviceFeatures {
+        var features = c.VkPhysicalDeviceFeatures2{
+            .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = next,
+        };
+        c.vkGetPhysicalDeviceFeatures2.?(self.handle(), @ptrCast(&features));
+        return features.features;
     }
 
     pub inline fn getSurfaceCapabilitiesKHR(
@@ -806,10 +823,10 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
 
     pub inline fn submit2(
         self: Queue,
-        info: []const c.VkSubmitInfo2,
+        info: []const c.VkSubmitInfo2KHR,
         fence: ?Fence,
     ) Result {
-        return result(c.vkQueueSubmit2.?(
+        return result(c.vkQueueSubmit2KHR.?(
             self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
@@ -867,7 +884,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         self: CommandBuffer,
         info: *const c.VkDependencyInfo,
     ) void {
-        c.vkCmdPipelineBarrier2.?(self.handle(), info);
+        c.vkCmdPipelineBarrier2KHR.?(self.handle(), info);
     }
 
     pub inline fn clearColorImage(
@@ -908,9 +925,9 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
 
     pub inline fn blitImage2(
         self: CommandBuffer,
-        info: *const c.VkBlitImageInfo2,
+        info: *const c.VkBlitImageInfo2KHR,
     ) void {
-        c.vkCmdBlitImage2.?(self.handle(), info);
+        c.vkCmdBlitImage2KHR.?(self.handle(), info);
     }
 
     pub inline fn bindPipeline(
@@ -993,9 +1010,9 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
 
     pub inline fn beginRendering(
         self: CommandBuffer,
-        info: *const c.VkRenderingInfo,
+        info: *const c.VkRenderingInfoKHR,
     ) void {
-        c.vkCmdBeginRendering.?(self.handle(), info);
+        c.vkCmdBeginRenderingKHR.?(self.handle(), info);
     }
 
     pub inline fn draw(
@@ -1033,7 +1050,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
     }
 
     pub inline fn endRendering(self: CommandBuffer) void {
-        c.vkCmdEndRendering.?(self.handle());
+        c.vkCmdEndRenderingKHR.?(self.handle());
     }
 
     pub inline fn pushConstants(

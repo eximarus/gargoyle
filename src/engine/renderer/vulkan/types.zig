@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../../c.zig");
+const c = @import("c");
 const vk = @import("vulkan.zig");
 const vma = @import("vma.zig");
 const math = @import("../../math/math.zig");

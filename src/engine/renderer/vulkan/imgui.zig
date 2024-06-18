@@ -1,4 +1,4 @@
-const c = @import("../../c.zig");
+const c = @import("c");
 // const common = @import("common.zig");
 // const CString = common.CString;
 

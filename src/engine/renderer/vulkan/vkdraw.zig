@@ -1,7 +1,7 @@
 const std = @import("std");
 const time = @import("../../core/time.zig");
 const config = @import("config");
-const c = @import("../../c.zig");
+const c = @import("c");
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
 const vma = @import("vma.zig");
@@ -195,7 +195,7 @@ pub inline fn copyImageToImage(
     dst_size: c.VkExtent2D,
 ) void {
     cmd.blitImage2(&.{
-        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2_KHR,
         .dstImage = dst,
         .dstImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         .srcImage = src,

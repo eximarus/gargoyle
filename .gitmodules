@@ -1,4 +1,4 @@
 [submodule "submodules/cimgui"]
-	path = submodules/cimgui
+	path = c/submodules/cimgui
 	url = https://github.com/cimgui/cimgui.git
 	branch = 1.90.6dock

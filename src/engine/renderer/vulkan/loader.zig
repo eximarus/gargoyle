@@ -1,6 +1,6 @@
 const std = @import("std");
 const math = @import("../../math/math.zig");
-const c = @import("../../c.zig");
+const c = @import("c");
 const common = @import("common.zig");
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");

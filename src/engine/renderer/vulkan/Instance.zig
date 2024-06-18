@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../../c.zig");
+const c = @import("c");
 const vk = @import("vulkan.zig");
 const common = @import("common.zig");
 const CString = common.CString;
@@ -12,19 +12,13 @@ instance: vk.Instance,
 debug_messenger: vk.DebugUtilsMessengerEXT = null,
 alloc_cb: ?*c.VkAllocationCallbacks = null,
 
-headless: bool = false,
-properties2_ext_enabled: bool = false,
-instance_version: u32 = c.VK_API_VERSION_1_0,
-api_version: u32 = c.VK_API_VERSION_1_0,
-
 pub fn init(
     arena: std.mem.Allocator,
     info: *const struct {
         // VkApplicationInfo
         app_name: ?CString = null,
-        engine_name: ?CString = null,
         app_ver: u32 = 0,
-        engine_ver: u32 = 0,
+
         min_inst_ver: u32 = 0,
         required_api_ver: u32 = c.VK_API_VERSION_1_0,
         desired_api_ver: u32 = c.VK_API_VERSION_1_0,
@@ -98,29 +92,21 @@ pub fn init(
         .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = @ptrCast(info.app_name orelse ""),
         .applicationVersion = info.app_ver,
-        .pEngineName = @ptrCast(info.engine_name orelse ""),
-        .engineVersion = info.engine_ver,
+        .pEngineName = "gargoyle",
+        .engineVersion = c.VK_MAKE_VERSION(0, 0, 1),
         .apiVersion = api_version,
     };
 
     var extensions = std.ArrayList(CString).init(arena);
     var layers = std.ArrayList(CString).init(arena);
     try extensions.appendSlice(info.extensions);
+    try extensions.append(c.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
 
     if (info.debug_callback != null and
         info.use_debug_messenger and
         system.debug_utils_available)
     {
         try extensions.append(c.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    }
-
-    const properties2_ext_enabled = api_version < c.VK_API_VERSION_1_1 and
-        system.isExtensionSupported(
-        c.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-    );
-
-    if (properties2_ext_enabled) {
-        try extensions.append(c.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
     }
 
     var portability_enumeration_support = false;
@@ -212,11 +198,13 @@ pub fn init(
         }
     }
 
-    const instance = try vk.createInstance(&instance_create_info, null);
-    var self: Instance = undefined;
+    var self = Instance{
+        .instance = try vk.createInstance(&instance_create_info, info.allocation_callbacks),
+        .alloc_cb = info.allocation_callbacks,
+    };
 
     if (info.use_debug_messenger) {
-        self.debug_messenger = try instance.createDebugUtilsMessengerEXT(
+        self.debug_messenger = try self.instance.createDebugUtilsMessengerEXT(
             &.{
                 .sType = c.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
                 .pNext = null,
@@ -229,12 +217,6 @@ pub fn init(
         );
     }
 
-    self.instance = instance;
-    self.headless = info.headless_context;
-    self.properties2_ext_enabled = properties2_ext_enabled;
-    self.instance_version = instance_version;
-    self.api_version = api_version;
-
     return self;
 }
 
@@ -246,7 +228,7 @@ fn defaultDebugCallback(
 ) callconv(.C) c.VkBool32 {
     _ = user_data;
 
-    const message = cb_data[0].pMessage;
+    const message = cb_data.*.pMessage;
     const mt = messageTypeToString(message_type);
     if (severity & c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT != 0) {
         std.log.err(
@@ -268,6 +250,10 @@ fn defaultDebugCallback(
             "[Vulkan: {s}]\n{s}\n",
             .{ mt, message },
         );
+    }
+
+    for (0..cb_data.*.objectCount) |i| {
+        std.log.info("{x}\n", .{cb_data.*.pObjects[i].objectHandle});
     }
 
     return c.VK_FALSE;

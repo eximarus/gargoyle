@@ -1,5 +1,5 @@
 const std = @import("std");
-const c = @import("../c.zig");
+const c = @import("c");
 const vk = @import("../renderer/vulkan/vulkan.zig");
 const window_types = @import("window_types.zig");
 pub usingnamespace window_types;
