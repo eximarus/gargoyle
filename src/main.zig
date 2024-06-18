@@ -7,7 +7,11 @@ const app_types = g.app_types;
 const AppConfig = g.AppConfig;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    const buf_size = 6 * 1024 * 1024 * 1024;
+    const buf = try std.heap.c_allocator.alloc(u8, buf_size);
+    var fba = std.heap.FixedBufferAllocator.init(buf);
+
+    var arena = std.heap.ArenaAllocator.init(fba.allocator());
     defer arena.deinit();
     const allocator = arena.allocator();
 

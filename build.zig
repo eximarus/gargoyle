@@ -83,9 +83,11 @@ pub fn build(b: *std.Build) !void {
     });
     app_lib.linkLibC();
 
+    const triple = try target.result.zigTriple(b.allocator);
+
     b.getInstallStep().dependOn(&b.addInstallArtifact(
         app_lib,
-        .{ .dest_dir = .{ .override = .{ .custom = "Publish" } } },
+        .{ .dest_dir = .{ .override = .{ .custom = triple } } },
     ).step);
 
     const exe = b.addExecutable(.{
@@ -105,7 +107,7 @@ pub fn build(b: *std.Build) !void {
 
     b.getInstallStep().dependOn(&b.addInstallArtifact(
         exe,
-        .{ .dest_dir = .{ .override = .{ .custom = "Publish" } } },
+        .{ .dest_dir = .{ .override = .{ .custom = triple } } },
     ).step);
 
     const run_exe = b.addRunArtifact(exe);
