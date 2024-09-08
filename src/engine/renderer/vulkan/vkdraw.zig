@@ -1,10 +1,9 @@
 const std = @import("std");
 const time = @import("../../core/time.zig");
 const config = @import("config");
-const c = @import("c");
 const vk = @import("vulkan.zig");
+const c = vk.c;
 const vkinit = @import("vkinit.zig");
-const vma = @import("vma.zig");
 const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
@@ -73,7 +72,7 @@ pub fn gui(
         ),
         null,
     ));
-    imgui.ImGui_ImplVulkan_RenderDrawData(c.igGetDrawData(), cmd.handle(), null);
+    imgui.ImGui_ImplVulkan_RenderDrawData(imgui.c.igGetDrawData(), cmd.handle(), null);
     cmd.endRendering();
 }
 

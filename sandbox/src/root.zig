@@ -13,7 +13,7 @@ pub const App = struct {
         };
     }
 
-    pub fn init(self: *App, out_config: *AppConfig) anyerror!void {
+    pub fn start(self: *App, out_config: *AppConfig) anyerror!void {
         _ = self;
         out_config.* = AppConfig{};
         out_config.window.title = "sandbox";
@@ -23,7 +23,7 @@ pub const App = struct {
             .height = 900,
         });
 
-        std.log.info("sandbox init\n", .{});
+        std.log.info("sandbox start\n", .{});
     }
 
     pub fn update(self: *App, dt: f32) anyerror!void {

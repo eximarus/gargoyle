@@ -2,12 +2,15 @@
     .name = "gargoyle",
     .version = "0.1.0",
     .dependencies = .{
-        .zigwin32 = .{
-            .url = "https://github.com/marlersoft/zigwin32/archive/aec51b5b77764bd474a3a8e074d011492eb7e5ed.tar.gz",
-            .hash = "12207523d070abaf0b3a078c58c8afbc5445f21e5779b7e2745514e34e0f90f10652",
+        .sdl_win32 = .{
+            .path = "./lib/win32/SDL2-2.0.20",
         },
-        .c = .{
-            .path = "./c",
+        .imgui = .{
+            .path = "./submodules/cimgui",
+        },
+        .cgltf = .{
+            .url = "https://github.com/jkuhlmann/cgltf/archive/v1.14.tar.gz",
+            .hash = "12209ac27a63c8a2eeb5691f139eaa1d7d1fcee223e8fa9763da3a592253c6b57032",
         },
     },
     .paths = .{

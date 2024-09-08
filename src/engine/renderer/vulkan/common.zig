@@ -1,6 +1,7 @@
 const std = @import("std");
-const c = @import("c");
-pub const CString = [*:0]const u8;
+const vk = @import("vulkan.zig");
+const c = vk.c;
+pub const CString = vk.CString;
 
 pub fn isLayerAvailable(
     available: []const c.VkLayerProperties,

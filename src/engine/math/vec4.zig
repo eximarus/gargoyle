@@ -11,7 +11,7 @@ pub const Vec4 = extern union {
         z: f32,
         w: f32,
     },
-    simd: @Vector(4, f32),
+    simd: f32x4,
 
     pub inline fn new(x: f32, y: f32, z: f32, w: f32) Vec4 {
         return Vec4{ .elements = .{ .x = x, .y = y, .z = z, .w = w } };

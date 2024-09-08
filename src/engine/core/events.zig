@@ -1,5 +1,7 @@
 const std = @import("std");
-const c = @import("c");
+const c = @import("window.zig").c;
+const imgui = @import("../renderer/vulkan/imgui.zig");
+// const c = @import("c");
 
 pub const EventHandler = struct {
     ptr: *anyopaque,
@@ -50,6 +52,6 @@ pub fn poll(handler: EventHandler) void {
             },
             else => {},
         }
-        _ = c.ImGui_ImplSDL2_ProcessEvent(&event);
+        _ = imgui.c.ImGui_ImplSDL2_ProcessEvent(@ptrCast(&event));
     }
 }

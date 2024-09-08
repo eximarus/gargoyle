@@ -36,7 +36,7 @@ pub fn main() !void {
     updateAppPointers(symbols, &app);
 
     var app_conf: AppConfig = undefined;
-    if (app.init(&app_conf) != 0) {
+    if (app.start(&app_conf) != 0) {
         @panic("App not initialized.");
     }
 
@@ -73,7 +73,7 @@ pub fn main() !void {
 
 pub const AppSymbols = struct {
     appCreate: app_types.CreateFn = undefined,
-    appInit: app_types.InitFn = undefined,
+    appStart: app_types.StartFn = undefined,
     appReload: app_types.ReloadFn = undefined,
     appUpdate: app_types.UpdateFn = undefined,
     appFixedUpdate: app_types.FixedUpdateFn = undefined,
@@ -143,7 +143,7 @@ const AppLib = struct {
 };
 
 inline fn updateAppPointers(symbols: AppSymbols, app: *app_types.App) void {
-    app._init = symbols.appInit;
+    app._start = symbols.appStart;
     app._fixedUpdate = symbols.appFixedUpdate;
     app._update = symbols.appUpdate;
     app._reload = symbols.appReload;

@@ -1,7 +1,12 @@
 const std = @import("std");
 const math = @import("../../math/math.zig");
-const c = @import("c");
-const common = @import("common.zig");
+
+const c = @cImport({
+    @cInclude("cgltf.h");
+});
+
+const CString = [*:0]const u8;
+
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
@@ -11,7 +16,7 @@ pub const GeoSurface = struct {
 };
 
 pub const MeshAssets = struct {
-    name: common.CString,
+    name: CString,
     surfaces: []GeoSurface,
     mesh: types.Mesh,
 };
@@ -57,7 +62,7 @@ pub fn gltfError(result: c.cgltf_result) GltfError!void {
     };
 }
 
-pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: common.CString) ![]MeshAssets {
+pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: CString) ![]MeshAssets {
     const options = c.cgltf_options{};
 
     var data: *c.cgltf_data = undefined;
@@ -67,19 +72,19 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: common.CString) ![]MeshAs
     try gltfError(c.cgltf_load_buffers(&options, data, path));
     try gltfError(c.cgltf_validate(data));
 
-    var indices = std.ArrayList(u32).init(renderer.allocator);
+    var indices = std.ArrayList(u32).init(renderer.gpa);
     defer indices.deinit();
-    var vertices = std.ArrayList(types.Vertex).init(renderer.allocator);
+    var vertices = std.ArrayList(types.Vertex).init(renderer.gpa);
     defer vertices.deinit();
 
-    const meshes = try renderer.allocator.alloc(MeshAssets, data.meshes_count);
+    const meshes = try renderer.gpa.alloc(MeshAssets, data.meshes_count);
     for (data.meshes[0..data.meshes_count], meshes) |gltf_mesh, *mesh_assets| {
         mesh_assets.name = gltf_mesh.name;
 
         indices.clearRetainingCapacity();
         vertices.clearRetainingCapacity();
 
-        mesh_assets.surfaces = try renderer.allocator.alloc(GeoSurface, gltf_mesh.primitives_count);
+        mesh_assets.surfaces = try renderer.gpa.alloc(GeoSurface, gltf_mesh.primitives_count);
         for (
             gltf_mesh.primitives[0..gltf_mesh.primitives_count],
             mesh_assets.surfaces,

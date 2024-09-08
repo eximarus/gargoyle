@@ -8,7 +8,8 @@ const Window = @import("window.zig").Window;
 const Renderer = @import("../renderer/renderer.zig").Renderer;
 
 pub const Engine = struct {
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
     window: Window,
     renderer: Renderer,
     timer: time.Timer,
@@ -19,15 +20,17 @@ pub const Engine = struct {
     quit: bool = false,
 
     pub inline fn init(
-        allocator: std.mem.Allocator,
+        gpa: std.mem.Allocator,
         cfg: *const AppConfig,
     ) !Engine {
         const window = try Window.init(&cfg.window);
+        var arena = std.heap.ArenaAllocator.init(gpa);
 
         return Engine{
-            .allocator = allocator,
+            .gpa = gpa,
+            .arena = arena,
             .window = window,
-            .renderer = try Renderer.init(allocator, window, cfg.render),
+            .renderer = try Renderer.init(gpa, arena.allocator(), window, cfg.render),
             .timer = try time.Timer.start(),
             .fixed_timestep_ns = cfg.physics.fixed_timestep_ns,
         };
@@ -58,12 +61,16 @@ pub const Engine = struct {
         self.renderer.render(app) catch |err| {
             std.log.err("gargoyle render error: {}\n", .{err});
         };
+
+        _ = self.arena.reset(.{ .retain_with_limit = 4096 });
+
         return !self.quit;
     }
 
     pub inline fn deinit(self: *Engine) void {
         self.renderer.deinit();
         self.window.deinit();
+        self.arena.deinit();
     }
 
     fn eventHandler(self: *Engine) events.EventHandler {

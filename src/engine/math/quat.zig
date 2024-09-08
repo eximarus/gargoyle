@@ -11,7 +11,7 @@ pub const Quat = extern union {
         z: f32,
         w: f32,
     },
-    simd: @Vector(4, f32),
+    simd: f32x4,
 
     pub inline fn new(x: f32, y: f32, z: f32, w: f32) Quat {
         return Quat{ .elements = .{ .x = x, .y = y, .z = z, .w = w } };
@@ -61,10 +61,6 @@ pub const Quat = extern union {
 
     /// x/y/z = roll/pitch/yaw = phi/theta/psi = alpha/beta/gamma
     pub inline fn euler(roll_rad: f32, pitch_rad: f32, yaw_rad: f32) Quat {
-        // const half_roll = 0.5 * pitch_rad;
-        // const half_pitch = 0.5 * yaw_rad;
-        // const half_yaw = 0.5 * roll_rad;
-
         const half_roll = 0.5 * roll_rad;
         const half_pitch = 0.5 * pitch_rad;
         const half_yaw = 0.5 * yaw_rad;

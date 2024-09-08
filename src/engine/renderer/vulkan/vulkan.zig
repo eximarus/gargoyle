@@ -1,10 +1,121 @@
 const std = @import("std");
-const c = @import("c");
-const common = @import("common.zig");
-const CString = common.CString;
+const builtin = @import("builtin");
+
+pub const CString = [*:0]const u8;
+
+pub const c = @cImport({
+    @cDefine("VK_NO_PROTOTYPES", "");
+    @cDefine(getVkPlatformDefine(), "");
+    @cInclude("vulkan/vulkan.h");
+});
+
+fn getVkPlatformDefine() []const u8 {
+    return if (builtin.abi == .android)
+        "VK_USE_PLATFORM_ANDROID_KHR"
+    else switch (builtin.os.tag) {
+        .ios => "VK_USE_PLATFORM_IOS_MVK",
+        .macos => "VK_USE_PLATFORM_MACOS_MVK",
+        .windows => "VK_USE_PLATFORM_WIN32_KHR",
+        .linux => "VK_USE_PLATFORM_WAYLAND_KHR",
+        else => @compileError("platform not supported."),
+    };
+}
+
+fn getVkLibName() []const u8 {
+    return if (builtin.abi == .android)
+        "libvulkan.so.1"
+    else switch (builtin.os.tag) {
+        .ios, .macos => "libvulkan.1.dylib",
+        .windows => "vulkan-1.dll",
+        .linux => "libvulkan.so.1",
+        else => @compileError("platform not supported."),
+    };
+}
+
+fn PFN(comptime T: type) type {
+    return @typeInfo(T).Optional.child;
+}
+
+var vk_lib: ?std.DynLib = null;
+
+var vkGetInstanceProcAddr: PFN(c.PFN_vkGetInstanceProcAddr) = undefined;
+var vkCreateInstance: PFN(c.PFN_vkCreateInstance) = undefined;
+var vkEnumerateInstanceExtensionProperties: PFN(c.PFN_vkEnumerateInstanceExtensionProperties) = undefined;
+var vkEnumerateInstanceLayerProperties: PFN(c.PFN_vkEnumerateInstanceLayerProperties) = undefined;
+var vkEnumerateInstanceVersion: PFN(c.PFN_vkEnumerateInstanceVersion) = undefined;
+
+fn getInstanceProcAddr(instance: c.VkInstance, comptime name: []const u8) void {
+    @field(@This(), name) = @ptrCast(vkGetInstanceProcAddr(instance, @ptrCast(name)));
+}
 
 pub fn init() Result {
-    return result(c.volkInitialize());
+    if (vk_lib != null) {
+        return .Success;
+    }
+
+    var dyn_lib = std.DynLib.open(getVkLibName()) catch |err| {
+        std.log.err("{}\n", .{err});
+        return Error.InitializationFailed;
+    };
+    vk_lib = dyn_lib;
+
+    vkGetInstanceProcAddr = dyn_lib.lookup(c.PFN_vkGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse {
+        return Error.InitializationFailed;
+    } orelse {
+        return Error.InitializationFailed;
+    };
+
+    getInstanceProcAddr(null, "vkCreateInstance");
+    getInstanceProcAddr(null, "vkEnumerateInstanceExtensionProperties");
+    getInstanceProcAddr(null, "vkEnumerateInstanceLayerProperties");
+    getInstanceProcAddr(null, "vkEnumerateInstanceVersion");
+
+    return .Success;
+}
+
+var vkEnumeratePhysicalDevices: PFN(c.PFN_vkEnumeratePhysicalDevices) = undefined;
+var vkDestroySurfaceKHR: PFN(c.PFN_vkDestroySurfaceKHR) = undefined;
+var vkDestroyInstance: PFN(c.PFN_vkDestroyInstance) = undefined;
+var vkGetPhysicalDeviceQueueFamilyProperties: PFN(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties) = undefined;
+var vkEnumerateDeviceExtensionProperties: PFN(c.PFN_vkEnumerateDeviceExtensionProperties) = undefined;
+var vkGetPhysicalDeviceSurfaceSupportKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR) = undefined;
+var vkGetPhysicalDeviceProperties2: PFN(c.PFN_vkGetPhysicalDeviceProperties2) = undefined;
+var vkGetPhysicalDeviceFeatures2: PFN(c.PFN_vkGetPhysicalDeviceFeatures2) = undefined;
+var vkGetPhysicalDeviceSurfaceCapabilitiesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) = undefined;
+var vkGetPhysicalDeviceSurfaceFormatsKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) = undefined;
+var vkGetPhysicalDeviceSurfacePresentModesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) = undefined;
+var vkCreateDevice: PFN(c.PFN_vkCreateDevice) = undefined;
+var vkGetDeviceProcAddr: PFN(c.PFN_vkGetDeviceProcAddr) = undefined;
+
+var vkCreateDebugUtilsMessengerEXT: PFN(c.PFN_vkCreateDebugUtilsMessengerEXT) = undefined;
+var vkDestroyDebugUtilsMessengerEXT: PFN(c.PFN_vkDestroyDebugUtilsMessengerEXT) = undefined;
+
+var vkQueueSubmit: PFN(c.PFN_vkQueueSubmit) = undefined;
+var vkQueueSubmit2KHR: PFN(c.PFN_vkQueueSubmit2KHR) = undefined;
+var vkQueueWaitIdle: PFN(c.PFN_vkQueueWaitIdle) = undefined;
+var vkQueueBindSparse: PFN(c.PFN_vkQueueBindSparse) = undefined;
+var vkQueuePresentKHR: PFN(c.PFN_vkQueuePresentKHR) = undefined;
+var vkBeginCommandBuffer: PFN(c.PFN_vkBeginCommandBuffer) = undefined;
+var vkResetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
+var vkCmdPipelineBarrier2KHR: PFN(c.PFN_vkCmdPipelineBarrier2KHR) = undefined;
+var vkCmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
+var vkEndCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
+var vkCmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
+var vkCmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
+var vkCmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
+var vkCmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
+var vkCmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
+var vkCmdSetViewport: PFN(c.PFN_vkCmdSetViewport) = undefined;
+var vkCmdSetScissor: PFN(c.PFN_vkCmdSetScissor) = undefined;
+var vkCmdDispatch: PFN(c.PFN_vkCmdDispatch) = undefined;
+var vkCmdBeginRenderingKHR: PFN(c.PFN_vkCmdBeginRenderingKHR) = undefined;
+var vkCmdDraw: PFN(c.PFN_vkCmdDraw) = undefined;
+var vkCmdDrawIndexed: PFN(c.PFN_vkCmdDrawIndexed) = undefined;
+var vkCmdEndRenderingKHR: PFN(c.PFN_vkCmdEndRenderingKHR) = undefined;
+var vkCmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
+
+fn getDeviceProcAddr(device: c.VkDevice, comptime name: []const u8) void {
+    @field(@This(), name) = @ptrCast(vkGetDeviceProcAddr(device, @ptrCast(name)));
 }
 
 pub inline fn createInstance(
@@ -12,18 +123,55 @@ pub inline fn createInstance(
     allocator: ?*const c.VkAllocationCallbacks,
 ) !Instance {
     var self: Instance = undefined;
-    try vkCheck(c.vkCreateInstance.?(create_info, allocator, @ptrCast(&self)));
-    c.volkLoadInstance(self.handle());
+    try vkCheck(vkCreateInstance(create_info, allocator, @ptrCast(&self)));
+
+    getInstanceProcAddr(self.handle(), "vkDestroyInstance");
+    getInstanceProcAddr(self.handle(), "vkDestroySurfaceKHR");
+    getInstanceProcAddr(self.handle(), "vkEnumeratePhysicalDevices");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceQueueFamilyProperties");
+    getInstanceProcAddr(self.handle(), "vkEnumerateDeviceExtensionProperties");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceSupportKHR");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceProperties2");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceFeatures2");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+
+    getInstanceProcAddr(self.handle(), "vkCreateDebugUtilsMessengerEXT");
+    getInstanceProcAddr(self.handle(), "vkDestroyDebugUtilsMessengerEXT");
+
+    getInstanceProcAddr(self.handle(), "vkCreateDevice");
+    getInstanceProcAddr(self.handle(), "vkGetDeviceProcAddr");
+    getInstanceProcAddr(self.handle(), "vkQueueSubmit");
+    getInstanceProcAddr(self.handle(), "vkQueueSubmit2KHR");
+    getInstanceProcAddr(self.handle(), "vkQueueWaitIdle");
+    getInstanceProcAddr(self.handle(), "vkQueueBindSparse");
+    getInstanceProcAddr(self.handle(), "vkQueuePresentKHR");
+    getInstanceProcAddr(self.handle(), "vkBeginCommandBuffer");
+    getInstanceProcAddr(self.handle(), "vkResetCommandBuffer");
+    getInstanceProcAddr(self.handle(), "vkCmdPipelineBarrier2KHR");
+    getInstanceProcAddr(self.handle(), "vkCmdClearColorImage");
+    getInstanceProcAddr(self.handle(), "vkEndCommandBuffer");
+    getInstanceProcAddr(self.handle(), "vkCmdCopyBuffer");
+    getInstanceProcAddr(self.handle(), "vkCmdBlitImage2KHR");
+    getInstanceProcAddr(self.handle(), "vkCmdBindPipeline");
+    getInstanceProcAddr(self.handle(), "vkCmdBindIndexBuffer");
+    getInstanceProcAddr(self.handle(), "vkCmdBindDescriptorSets");
+    getInstanceProcAddr(self.handle(), "vkCmdSetViewport");
+    getInstanceProcAddr(self.handle(), "vkCmdSetScissor");
+    getInstanceProcAddr(self.handle(), "vkCmdDispatch");
+    getInstanceProcAddr(self.handle(), "vkCmdBeginRenderingKHR");
+    getInstanceProcAddr(self.handle(), "vkCmdDraw");
+    getInstanceProcAddr(self.handle(), "vkCmdDrawIndexed");
+    getInstanceProcAddr(self.handle(), "vkCmdEndRenderingKHR");
+    getInstanceProcAddr(self.handle(), "vkCmdPushConstants");
     return self;
 }
 
 pub fn enumerateInstanceVersion() !u32 {
     var instance_version: u32 = undefined;
-    if (c.vkEnumerateInstanceVersion) |fun| {
-        try vkCheck(fun(&instance_version));
-        return instance_version;
-    }
-    return error.VkCommandNotSupported;
+    try vkCheck(vkEnumerateInstanceVersion(&instance_version));
+    return instance_version;
 }
 
 pub fn enumerateInstanceExtensionProperties(
@@ -31,7 +179,7 @@ pub fn enumerateInstanceExtensionProperties(
     layer_name: ?CString,
 ) ![]c.VkExtensionProperties {
     var instance_extension_count: u32 = undefined;
-    try vkCheck(c.vkEnumerateInstanceExtensionProperties.?(
+    try vkCheck(vkEnumerateInstanceExtensionProperties(
         @ptrCast(layer_name),
         &instance_extension_count,
         null,
@@ -41,7 +189,7 @@ pub fn enumerateInstanceExtensionProperties(
         c.VkExtensionProperties,
         instance_extension_count,
     );
-    try vkCheck(c.vkEnumerateInstanceExtensionProperties.?(
+    try vkCheck(vkEnumerateInstanceExtensionProperties(
         @ptrCast(layer_name),
         &instance_extension_count,
         instance_extensions.ptr,
@@ -53,7 +201,7 @@ pub fn enumerateInstanceLayerProperties(
     allocator: std.mem.Allocator,
 ) ![]c.VkLayerProperties {
     var instance_layer_count: u32 = undefined;
-    try vkCheck(c.vkEnumerateInstanceLayerProperties.?(
+    try vkCheck(vkEnumerateInstanceLayerProperties(
         &instance_layer_count,
         null,
     ));
@@ -62,7 +210,7 @@ pub fn enumerateInstanceLayerProperties(
         c.VkLayerProperties,
         instance_layer_count,
     );
-    try vkCheck(c.vkEnumerateInstanceLayerProperties.?(
+    try vkCheck(vkEnumerateInstanceLayerProperties(
         &instance_layer_count,
         supported_validation_layers.ptr,
     ));
@@ -78,8 +226,6 @@ pub const Instance = *align(@alignOf(c.VkInstance)) opaque {
         self: Instance,
         allocator: std.mem.Allocator,
     ) ![]PhysicalDevice {
-        const vkEnumeratePhysicalDevices = c.vkEnumeratePhysicalDevices.?;
-
         var gpu_count: u32 = 0;
         try vkCheck(vkEnumeratePhysicalDevices(self.handle(), &gpu_count, null));
 
@@ -101,7 +247,7 @@ pub const Instance = *align(@alignOf(c.VkInstance)) opaque {
         surface: SurfaceKHR,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySurfaceKHR.?(self.handle(), surface, allocator);
+        vkDestroySurfaceKHR(self.handle(), surface, allocator);
     }
 
     pub inline fn createDebugUtilsMessengerEXT(
@@ -109,17 +255,15 @@ pub const Instance = *align(@alignOf(c.VkInstance)) opaque {
         info: *const c.VkDebugUtilsMessengerCreateInfoEXT,
         allocator: ?*const c.VkAllocationCallbacks,
     ) !DebugUtilsMessengerEXT {
-        if (c.vkCreateDebugUtilsMessengerEXT) |func| {
-            var messenger: DebugUtilsMessengerEXT = undefined;
-            try vkCheck(func(
-                self.handle(),
-                info,
-                allocator,
-                &messenger,
-            ));
-            return messenger;
-        }
-        return Error.ExtensionNotPresent;
+        var messenger: DebugUtilsMessengerEXT = undefined;
+
+        try vkCheck(vkCreateDebugUtilsMessengerEXT(
+            self.handle(),
+            info,
+            allocator,
+            &messenger,
+        ));
+        return messenger;
     }
 
     pub inline fn destroyDebugUtilsMessengerEXT(
@@ -127,22 +271,18 @@ pub const Instance = *align(@alignOf(c.VkInstance)) opaque {
         debug_messenger: DebugUtilsMessengerEXT,
         allocator: ?*const c.VkAllocationCallbacks,
     ) !void {
-        if (c.vkDestroyDebugUtilsMessengerEXT) |func| {
-            func(
-                self.handle(),
-                debug_messenger,
-                allocator,
-            );
-        } else {
-            return Error.ExtensionNotPresent;
-        }
+        vkDestroyDebugUtilsMessengerEXT(
+            self.handle(),
+            debug_messenger,
+            allocator,
+        );
     }
 
     pub inline fn destroy(
         self: Instance,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyInstance.?(self.handle(), allocator);
+        vkDestroyInstance(self.handle(), allocator);
     }
 };
 
@@ -156,7 +296,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         allocator: std.mem.Allocator,
     ) ![]c.VkQueueFamilyProperties {
         var queue_family_count: u32 = 0;
-        c.vkGetPhysicalDeviceQueueFamilyProperties.?(
+        vkGetPhysicalDeviceQueueFamilyProperties(
             self.handle(),
             &queue_family_count,
             null,
@@ -171,7 +311,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             c.VkQueueFamilyProperties,
             queue_family_count,
         );
-        c.vkGetPhysicalDeviceQueueFamilyProperties.?(
+        vkGetPhysicalDeviceQueueFamilyProperties(
             self.handle(),
             &queue_family_count,
             queue_family_properties.ptr,
@@ -184,7 +324,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         allocator: std.mem.Allocator,
     ) ![]const c.VkExtensionProperties {
         var device_extension_count: u32 = undefined;
-        try vkCheck(c.vkEnumerateDeviceExtensionProperties.?(
+        try vkCheck(vkEnumerateDeviceExtensionProperties(
             self.handle(),
             null,
             &device_extension_count,
@@ -195,7 +335,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             c.VkExtensionProperties,
             device_extension_count,
         );
-        try vkCheck(c.vkEnumerateDeviceExtensionProperties.?(
+        try vkCheck(vkEnumerateDeviceExtensionProperties(
             self.handle(),
             null,
             &device_extension_count,
@@ -210,7 +350,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         surface: SurfaceKHR,
     ) !bool {
         var supports_present: c.VkBool32 = undefined;
-        try vkCheck(c.vkGetPhysicalDeviceSurfaceSupportKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfaceSupportKHR(
             self.handle(),
             i,
             surface,
@@ -228,7 +368,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             .pNext = next,
         };
 
-        c.vkGetPhysicalDeviceProperties2.?(self.handle(), @ptrCast(&props));
+        vkGetPhysicalDeviceProperties2(self.handle(), @ptrCast(&props));
         return props.properties;
     }
 
@@ -240,7 +380,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = next,
         };
-        c.vkGetPhysicalDeviceFeatures2.?(self.handle(), @ptrCast(&features));
+        vkGetPhysicalDeviceFeatures2(self.handle(), @ptrCast(&features));
         return features.features;
     }
 
@@ -249,7 +389,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         surface: SurfaceKHR,
     ) !c.VkSurfaceCapabilitiesKHR {
         var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
-        try vkCheck(c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
             self.handle(),
             surface,
             &capabilities,
@@ -263,7 +403,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         allocator: std.mem.Allocator,
     ) ![]const c.VkSurfaceFormatKHR {
         var format_count: u32 = undefined;
-        try vkCheck(c.vkGetPhysicalDeviceSurfaceFormatsKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfaceFormatsKHR(
             self.handle(),
             surface,
             &format_count,
@@ -274,7 +414,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             c.VkSurfaceFormatKHR,
             format_count,
         );
-        try vkCheck(c.vkGetPhysicalDeviceSurfaceFormatsKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfaceFormatsKHR(
             self.handle(),
             surface,
             &format_count,
@@ -289,7 +429,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         allocator: std.mem.Allocator,
     ) ![]const c.VkPresentModeKHR {
         var mode_count: u32 = undefined;
-        try vkCheck(c.vkGetPhysicalDeviceSurfacePresentModesKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfacePresentModesKHR(
             self.handle(),
             surface,
             &mode_count,
@@ -300,7 +440,7 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             c.VkPresentModeKHR,
             mode_count,
         );
-        try vkCheck(c.vkGetPhysicalDeviceSurfacePresentModesKHR.?(
+        try vkCheck(vkGetPhysicalDeviceSurfacePresentModesKHR(
             self.handle(),
             surface,
             &mode_count,
@@ -315,17 +455,87 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !Device {
         var device: Device = undefined;
-        try vkCheck(c.vkCreateDevice.?(
+        try vkCheck(vkCreateDevice(
             self.handle(),
             device_info,
             allocator,
             @ptrCast(&device),
         ));
 
-        c.volkLoadDevice(device.handle());
+        getDeviceProcAddr(device.handle(), "vkGetDeviceQueue");
+        getDeviceProcAddr(device.handle(), "vkCreateSwapchainKHR");
+        getDeviceProcAddr(device.handle(), "vkDestroySwapchainKHR");
+        getDeviceProcAddr(device.handle(), "vkCreateShaderModule");
+        getDeviceProcAddr(device.handle(), "vkCreatePipelineLayout");
+        getDeviceProcAddr(device.handle(), "vkDestroyShaderModule");
+        getDeviceProcAddr(device.handle(), "vkDestroyPipelineLayout");
+        getDeviceProcAddr(device.handle(), "vkCreateComputePipelines");
+        getDeviceProcAddr(device.handle(), "vkCreateGraphicsPipelines");
+        getDeviceProcAddr(device.handle(), "vkDestroyPipeline");
+        getDeviceProcAddr(device.handle(), "vkCreateImageView");
+        getDeviceProcAddr(device.handle(), "vkDestroyImageView");
+        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
+        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
+        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
+        getDeviceProcAddr(device.handle(), "vkCreateDescriptorPool");
+        getDeviceProcAddr(device.handle(), "vkResetDescriptorPool");
+        getDeviceProcAddr(device.handle(), "vkDestroyDescriptorPool");
+        getDeviceProcAddr(device.handle(), "vkAllocateDescriptorSets");
+        getDeviceProcAddr(device.handle(), "vkCreateCommandPool");
+        getDeviceProcAddr(device.handle(), "vkAllocateCommandBuffers");
+        getDeviceProcAddr(device.handle(), "vkCreateDescriptorSetLayout");
+        getDeviceProcAddr(device.handle(), "vkDestroyDescriptorSetLayout");
+        getDeviceProcAddr(device.handle(), "vkUpdateDescriptorSets");
+        getDeviceProcAddr(device.handle(), "vkDeviceWaitIdle");
+        getDeviceProcAddr(device.handle(), "vkDestroyCommandPool");
+        getDeviceProcAddr(device.handle(), "vkCreateFence");
+        getDeviceProcAddr(device.handle(), "vkDestroyFence");
+        getDeviceProcAddr(device.handle(), "vkCreateSemaphore");
+        getDeviceProcAddr(device.handle(), "vkDestroySemaphore");
+        getDeviceProcAddr(device.handle(), "vkWaitForFences");
+        getDeviceProcAddr(device.handle(), "vkResetFences");
+        getDeviceProcAddr(device.handle(), "vkGetBufferDeviceAddress");
+        getDeviceProcAddr(device.handle(), "vkAcquireNextImageKHR");
+        getDeviceProcAddr(device.handle(), "vkDestroyDevice");
+
         return device;
     }
 };
+
+var vkGetDeviceQueue: PFN(c.PFN_vkGetDeviceQueue) = undefined;
+var vkCreateSwapchainKHR: PFN(c.PFN_vkCreateSwapchainKHR) = undefined;
+var vkDestroySwapchainKHR: PFN(c.PFN_vkDestroySwapchainKHR) = undefined;
+var vkCreateShaderModule: PFN(c.PFN_vkCreateShaderModule) = undefined;
+var vkCreatePipelineLayout: PFN(c.PFN_vkCreatePipelineLayout) = undefined;
+var vkDestroyShaderModule: PFN(c.PFN_vkDestroyShaderModule) = undefined;
+var vkDestroyPipelineLayout: PFN(c.PFN_vkDestroyPipelineLayout) = undefined;
+
+var vkCreateComputePipelines: PFN(c.PFN_vkCreateComputePipelines) = undefined;
+var vkCreateGraphicsPipelines: PFN(c.PFN_vkCreateGraphicsPipelines) = undefined;
+var vkDestroyPipeline: PFN(c.PFN_vkDestroyPipeline) = undefined;
+var vkCreateImageView: PFN(c.PFN_vkCreateImageView) = undefined;
+var vkDestroyImageView: PFN(c.PFN_vkDestroyImageView) = undefined;
+var vkGetSwapchainImagesKHR: PFN(c.PFN_vkGetSwapchainImagesKHR) = undefined;
+var vkCreateDescriptorPool: PFN(c.PFN_vkCreateDescriptorPool) = undefined;
+var vkResetDescriptorPool: PFN(c.PFN_vkResetDescriptorPool) = undefined;
+var vkDestroyDescriptorPool: PFN(c.PFN_vkDestroyDescriptorPool) = undefined;
+var vkAllocateDescriptorSets: PFN(c.PFN_vkAllocateDescriptorSets) = undefined;
+var vkCreateCommandPool: PFN(c.PFN_vkCreateCommandPool) = undefined;
+var vkAllocateCommandBuffers: PFN(c.PFN_vkAllocateCommandBuffers) = undefined;
+var vkCreateDescriptorSetLayout: PFN(c.PFN_vkCreateDescriptorSetLayout) = undefined;
+var vkDestroyDescriptorSetLayout: PFN(c.PFN_vkDestroyDescriptorSetLayout) = undefined;
+var vkUpdateDescriptorSets: PFN(c.PFN_vkUpdateDescriptorSets) = undefined;
+var vkDeviceWaitIdle: PFN(c.PFN_vkDeviceWaitIdle) = undefined;
+var vkDestroyCommandPool: PFN(c.PFN_vkDestroyCommandPool) = undefined;
+var vkCreateFence: PFN(c.PFN_vkCreateFence) = undefined;
+var vkDestroyFence: PFN(c.PFN_vkDestroyFence) = undefined;
+var vkCreateSemaphore: PFN(c.PFN_vkCreateSemaphore) = undefined;
+var vkDestroySemaphore: PFN(c.PFN_vkDestroySemaphore) = undefined;
+var vkWaitForFences: PFN(c.PFN_vkWaitForFences) = undefined;
+var vkResetFences: PFN(c.PFN_vkResetFences) = undefined;
+var vkGetBufferDeviceAddress: PFN(c.PFN_vkGetBufferDeviceAddress) = undefined;
+var vkAcquireNextImageKHR: PFN(c.PFN_vkAcquireNextImageKHR) = undefined;
+var vkDestroyDevice: PFN(c.PFN_vkDestroyDevice) = undefined;
 
 pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     pub inline fn handle(self: Device) c.VkDevice {
@@ -334,7 +544,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
 
     pub inline fn getQueue(self: Device, family_index: u32, index: u32) !Queue {
         var queue: Queue = undefined;
-        c.vkGetDeviceQueue.?(self.handle(), family_index, index, @ptrCast(&queue));
+        vkGetDeviceQueue(self.handle(), family_index, index, @ptrCast(&queue));
         return queue;
     }
 
@@ -344,7 +554,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !SwapchainKHR {
         var swapchain: SwapchainKHR = undefined;
-        try vkCheck(c.vkCreateSwapchainKHR.?(
+        try vkCheck(vkCreateSwapchainKHR(
             self.handle(),
             info,
             allocator,
@@ -358,7 +568,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         swapchain: SwapchainKHR,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySwapchainKHR.?(self.handle(), swapchain, allocator);
+        vkDestroySwapchainKHR(self.handle(), swapchain, allocator);
     }
 
     pub inline fn createShaderModule(
@@ -367,7 +577,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !ShaderModule {
         var mod: ShaderModule = undefined;
-        try vkCheck(c.vkCreateShaderModule.?(
+        try vkCheck(vkCreateShaderModule(
             self.handle(),
             info,
             allocator,
@@ -381,7 +591,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         shader: ShaderModule,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyShaderModule.?(self.handle(), shader, allocator);
+        vkDestroyShaderModule(self.handle(), shader, allocator);
     }
 
     pub inline fn createPipelineLayout(
@@ -390,7 +600,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !PipelineLayout {
         var layout: PipelineLayout = undefined;
-        try vkCheck(c.vkCreatePipelineLayout.?(
+        try vkCheck(vkCreatePipelineLayout(
             self.handle(),
             info,
             allocator,
@@ -404,7 +614,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         layout: PipelineLayout,
         allocator: ?*c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyPipelineLayout.?(self.handle(), layout, allocator);
+        vkDestroyPipelineLayout(self.handle(), layout, allocator);
     }
 
     pub inline fn createComputePipelines(
@@ -414,7 +624,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !Pipeline {
         var pipeline: Pipeline = undefined;
-        try vkCheck(c.vkCreateComputePipelines.?(
+        try vkCheck(vkCreateComputePipelines(
             self.handle(),
             if (cache) |value| value else null,
             @intCast(infos.len),
@@ -432,7 +642,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !Pipeline {
         var pipeline: Pipeline = undefined;
-        try vkCheck(c.vkCreateGraphicsPipelines.?(
+        try vkCheck(vkCreateGraphicsPipelines(
             self.handle(),
             if (cache) |value| value else null,
             @intCast(infos.len),
@@ -448,7 +658,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         pipeline: Pipeline,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyPipeline.?(self.handle(), pipeline, allocator);
+        vkDestroyPipeline(self.handle(), pipeline, allocator);
     }
 
     pub inline fn createImageView(
@@ -457,7 +667,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !ImageView {
         var view: ImageView = undefined;
-        try vkCheck(c.vkCreateImageView.?(
+        try vkCheck(vkCreateImageView(
             self.handle(),
             create_info,
             allocator,
@@ -471,12 +681,12 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         image_view: ImageView,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyImageView.?(self.handle(), image_view, allocator);
+        vkDestroyImageView(self.handle(), image_view, allocator);
     }
 
     pub inline fn getSwapchainImageCount(self: Device, swapchain: SwapchainKHR) !u32 {
         var image_count: u32 = undefined;
-        try vkCheck(c.vkGetSwapchainImagesKHR.?(
+        try vkCheck(vkGetSwapchainImagesKHR(
             self.handle(),
             swapchain,
             &image_count,
@@ -492,7 +702,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     ) ![]Image {
         var image_count: u32 = undefined;
 
-        try vkCheck(c.vkGetSwapchainImagesKHR.?(
+        try vkCheck(vkGetSwapchainImagesKHR(
             self.handle(),
             swapchain,
             &image_count,
@@ -504,7 +714,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
             image_count,
         );
 
-        try vkCheck(c.vkGetSwapchainImagesKHR.?(
+        try vkCheck(vkGetSwapchainImagesKHR(
             self.handle(),
             swapchain,
             &image_count,
@@ -520,7 +730,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     ) !void {
         var image_count: u32 = undefined;
 
-        try vkCheck(c.vkGetSwapchainImagesKHR.?(
+        try vkCheck(vkGetSwapchainImagesKHR(
             self.handle(),
             swapchain,
             &image_count,
@@ -528,7 +738,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         ));
 
         try list.ensureUnusedCapacity(image_count);
-        try vkCheck(c.vkGetSwapchainImagesKHR.?(
+        try vkCheck(vkGetSwapchainImagesKHR(
             self.handle(),
             swapchain,
             &image_count,
@@ -543,7 +753,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !DescriptorPool {
         var pool: DescriptorPool = undefined;
-        try vkCheck(c.vkCreateDescriptorPool.?(
+        try vkCheck(vkCreateDescriptorPool(
             self.handle(),
             info,
             allocator,
@@ -557,7 +767,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         pool: DescriptorPool,
         flags: c.VkDescriptorPoolResetFlags,
     ) Result {
-        return result(c.vkResetDescriptorPool.?(
+        return result(vkResetDescriptorPool(
             self.handle(),
             pool,
             flags,
@@ -569,7 +779,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         pool: DescriptorPool,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyDescriptorPool.?(
+        vkDestroyDescriptorPool(
             self.handle(),
             pool,
             allocator,
@@ -616,7 +826,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         info: *const c.VkDescriptorSetAllocateInfo,
         out_descriptor_sets: [*]DescriptorSet,
     ) Result {
-        return result(c.vkAllocateDescriptorSets.?(
+        return result(vkAllocateDescriptorSets(
             self.handle(),
             info,
             out_descriptor_sets,
@@ -629,7 +839,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !CommandPool {
         var pool: CommandPool = undefined;
-        try vkCheck(c.vkCreateCommandPool.?(
+        try vkCheck(vkCreateCommandPool(
             self.handle(),
             info,
             allocator,
@@ -643,7 +853,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         info: *const c.VkCommandBufferAllocateInfo,
     ) !CommandBuffer {
         var buffer: CommandBuffer = undefined;
-        try vkCheck(c.vkAllocateCommandBuffers.?(
+        try vkCheck(vkAllocateCommandBuffers(
             self.handle(),
             info,
             @ptrCast(&buffer),
@@ -657,7 +867,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !DescriptorSetLayout {
         var layout: DescriptorSetLayout = undefined;
-        try vkCheck(c.vkCreateDescriptorSetLayout.?(
+        try vkCheck(vkCreateDescriptorSetLayout(
             self.handle(),
             info,
             allocator,
@@ -671,7 +881,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         layout: DescriptorSetLayout,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyDescriptorSetLayout.?(self.handle(), layout, allocator);
+        vkDestroyDescriptorSetLayout(self.handle(), layout, allocator);
     }
 
     pub inline fn updateDescriptorSets(
@@ -679,7 +889,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         descriptor_writes: []const c.VkWriteDescriptorSet,
         descriptor_copies: []const c.VkCopyDescriptorSet,
     ) void {
-        c.vkUpdateDescriptorSets.?(
+        vkUpdateDescriptorSets(
             self.handle(),
             @intCast(descriptor_writes.len),
             @ptrCast(descriptor_writes.ptr),
@@ -689,7 +899,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     }
 
     pub inline fn waitIdle(self: Device) Result {
-        return result(c.vkDeviceWaitIdle.?(self.handle()));
+        return result(vkDeviceWaitIdle(self.handle()));
     }
 
     pub inline fn destroyCommandPool(
@@ -697,7 +907,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         command_pool: CommandPool,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyCommandPool.?(self.handle(), command_pool, allocator);
+        vkDestroyCommandPool(self.handle(), command_pool, allocator);
     }
 
     pub inline fn createFence(
@@ -706,7 +916,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !Fence {
         var fence: Fence = undefined;
-        try vkCheck(c.vkCreateFence.?(
+        try vkCheck(vkCreateFence(
             self.handle(),
             info,
             allocator,
@@ -720,7 +930,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         fence: Fence,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyFence.?(self.handle(), fence, allocator);
+        vkDestroyFence(self.handle(), fence, allocator);
     }
 
     pub inline fn createSemaphore(
@@ -729,7 +939,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         allocator: ?*const c.VkAllocationCallbacks,
     ) !Semaphore {
         var semaphore: Semaphore = undefined;
-        try vkCheck(c.vkCreateSemaphore.?(
+        try vkCheck(vkCreateSemaphore(
             self.handle(),
             info,
             allocator,
@@ -743,7 +953,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         semaphore: Semaphore,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroySemaphore.?(self.handle(), semaphore, allocator);
+        vkDestroySemaphore(self.handle(), semaphore, allocator);
     }
 
     pub inline fn waitForFences(
@@ -752,7 +962,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         wait_all: bool,
         timeout: u64,
     ) Result {
-        return result(c.vkWaitForFences.?(
+        return result(vkWaitForFences(
             self.handle(),
             @intCast(fences.len),
             @ptrCast(fences.ptr),
@@ -762,7 +972,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     }
 
     pub inline fn resetFences(self: Device, fences: []const Fence) Result {
-        return result(c.vkResetFences.?(
+        return result(vkResetFences(
             self.handle(),
             @intCast(fences.len),
             @ptrCast(fences.ptr),
@@ -773,7 +983,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         self: Device,
         info: *const c.VkBufferDeviceAddressInfo,
     ) c.VkDeviceAddress {
-        return c.vkGetBufferDeviceAddress.?(self.handle(), info);
+        return vkGetBufferDeviceAddress(self.handle(), info);
     }
 
     pub inline fn acquireNextImageKHR(
@@ -784,7 +994,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         fence: ?Fence,
     ) !u32 {
         var index: u32 = undefined;
-        try vkCheck(c.vkAcquireNextImageKHR.?(
+        try vkCheck(vkAcquireNextImageKHR(
             self.handle(),
             swapchain,
             timeout,
@@ -799,7 +1009,7 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         self: Device,
         allocator: ?*const c.VkAllocationCallbacks,
     ) void {
-        c.vkDestroyDevice.?(self.handle(), allocator);
+        vkDestroyDevice(self.handle(), allocator);
     }
 };
 
@@ -813,7 +1023,7 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
         info: []const c.VkSubmitInfo,
         fence: ?Fence,
     ) Result {
-        return result(c.vkQueueSubmit.?(
+        return result(vkQueueSubmit(
             self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
@@ -826,7 +1036,7 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
         info: []const c.VkSubmitInfo2KHR,
         fence: ?Fence,
     ) Result {
-        return result(c.vkQueueSubmit2KHR.?(
+        return result(vkQueueSubmit2KHR(
             self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
@@ -835,7 +1045,7 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
     }
 
     pub inline fn waitIdle(self: Queue) Result {
-        return result(c.vkQueueWaitIdle.?(self.handle()));
+        return result(vkQueueWaitIdle(self.handle()));
     }
 
     pub inline fn bindSparse(
@@ -843,7 +1053,7 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
         info: []const c.VkBindSparseInfo,
         fence: ?Fence,
     ) Result {
-        return result(c.vkQueueBindSparse.?(
+        return result(vkQueueBindSparse(
             self.handle(),
             @intCast(info.len),
             @ptrCast(info.ptr),
@@ -855,7 +1065,7 @@ pub const Queue = *align(@alignOf(c.VkQueue)) opaque {
         self: Queue,
         info: *const c.VkPresentInfoKHR,
     ) Result {
-        return result(c.vkQueuePresentKHR.?(self.handle(), info));
+        return result(vkQueuePresentKHR(self.handle(), info));
     }
 
     // c.vkQueueSignalReleaseImageANDROID
@@ -870,21 +1080,21 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         self: CommandBuffer,
         info: *const c.VkCommandBufferBeginInfo,
     ) Result {
-        return result(c.vkBeginCommandBuffer.?(self.handle(), info));
+        return result(vkBeginCommandBuffer(self.handle(), info));
     }
 
     pub inline fn reset(
         self: CommandBuffer,
         flags: c.VkCommandBufferResetFlags,
     ) Result {
-        return result(c.vkResetCommandBuffer.?(self.handle(), flags));
+        return result(vkResetCommandBuffer(self.handle(), flags));
     }
 
     pub inline fn pipelineBarrier2(
         self: CommandBuffer,
         info: *const c.VkDependencyInfo,
     ) void {
-        c.vkCmdPipelineBarrier2KHR.?(self.handle(), info);
+        vkCmdPipelineBarrier2KHR(self.handle(), info);
     }
 
     pub inline fn clearColorImage(
@@ -894,7 +1104,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         color: *const c.VkClearColorValue,
         ranges: []const c.VkImageSubresourceRange,
     ) void {
-        c.vkCmdClearColorImage.?(
+        vkCmdClearColorImage(
             self.handle(),
             image,
             image_layout,
@@ -905,7 +1115,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
     }
 
     pub inline fn end(self: CommandBuffer) Result {
-        return result(c.vkEndCommandBuffer.?(self.handle()));
+        return result(vkEndCommandBuffer(self.handle()));
     }
 
     pub inline fn copyBuffer(
@@ -914,7 +1124,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         dst: Buffer,
         regions: []const c.VkBufferCopy,
     ) void {
-        c.vkCmdCopyBuffer.?(
+        vkCmdCopyBuffer(
             self.handle(),
             src,
             dst,
@@ -927,7 +1137,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         self: CommandBuffer,
         info: *const c.VkBlitImageInfo2KHR,
     ) void {
-        c.vkCmdBlitImage2KHR.?(self.handle(), info);
+        vkCmdBlitImage2KHR(self.handle(), info);
     }
 
     pub inline fn bindPipeline(
@@ -935,7 +1145,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         bind_point: c.VkPipelineBindPoint,
         pipeline: Pipeline,
     ) void {
-        c.vkCmdBindPipeline.?(self.handle(), bind_point, pipeline);
+        vkCmdBindPipeline(self.handle(), bind_point, pipeline);
     }
 
     pub inline fn bindIndexBuffer(
@@ -944,7 +1154,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         offset: c.VkDeviceSize,
         index_type: c.VkIndexType,
     ) void {
-        c.vkCmdBindIndexBuffer.?(self.handle(), buffer, offset, index_type);
+        vkCmdBindIndexBuffer(self.handle(), buffer, offset, index_type);
     }
 
     // c.vkCmdBindDescriptorSets
@@ -956,7 +1166,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         descriptor_sets: []const DescriptorSet,
         dynamic_offsets: []const u32,
     ) void {
-        c.vkCmdBindDescriptorSets.?(
+        vkCmdBindDescriptorSets(
             self.handle(),
             bind_point,
             layout,
@@ -973,7 +1183,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         first_viewport: u32,
         viewports: []const c.VkViewport,
     ) void {
-        c.vkCmdSetViewport.?(
+        vkCmdSetViewport(
             self.handle(),
             first_viewport,
             @intCast(viewports.len),
@@ -986,7 +1196,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         first_scissor: u32,
         scissors: []const c.VkRect2D,
     ) void {
-        c.vkCmdSetScissor.?(
+        vkCmdSetScissor(
             self.handle(),
             first_scissor,
             @intCast(scissors.len),
@@ -1000,7 +1210,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         group_count_y: u32,
         group_count_z: u32,
     ) void {
-        c.vkCmdDispatch.?(
+        vkCmdDispatch(
             self.handle(),
             group_count_x,
             group_count_y,
@@ -1012,7 +1222,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         self: CommandBuffer,
         info: *const c.VkRenderingInfoKHR,
     ) void {
-        c.vkCmdBeginRenderingKHR.?(self.handle(), info);
+        vkCmdBeginRenderingKHR(self.handle(), info);
     }
 
     pub inline fn draw(
@@ -1022,7 +1232,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         first_vertex: u32,
         first_instance: u32,
     ) void {
-        c.vkCmdDraw.?(
+        vkCmdDraw(
             self.handle(),
             vertex_count,
             instance_count,
@@ -1039,7 +1249,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         vertex_offset: i32,
         first_instance: u32,
     ) void {
-        c.vkCmdDrawIndexed.?(
+        vkCmdDrawIndexed(
             self.handle(),
             index_count,
             instance_count,
@@ -1050,7 +1260,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
     }
 
     pub inline fn endRendering(self: CommandBuffer) void {
-        c.vkCmdEndRenderingKHR.?(self.handle());
+        vkCmdEndRenderingKHR(self.handle());
     }
 
     pub inline fn pushConstants(
@@ -1061,7 +1271,7 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         size: u32,
         values: ?*const anyopaque,
     ) void {
-        c.vkCmdPushConstants.?(
+        vkCmdPushConstants(
             self.handle(),
             layout,
             stage_flags,

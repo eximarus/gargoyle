@@ -1,5 +1,6 @@
 const std = @import("std");
-pub const Mat3 = extern struct {
+
+pub const Mat3 = extern union {
     data: [3 * 3]f32,
 
     pub inline fn identity() Mat3 {

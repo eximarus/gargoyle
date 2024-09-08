@@ -1,7 +1,7 @@
 const std = @import("std");
-const c = @import("c");
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
+const c = vk.c;
 
 pub fn loadShaderModule(
     comptime path: []const u8,

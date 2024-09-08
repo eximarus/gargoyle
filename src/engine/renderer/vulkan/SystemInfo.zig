@@ -1,6 +1,6 @@
 const std = @import("std");
-const c = @import("c");
 const vk = @import("vulkan.zig");
+const c = vk.c;
 const common = @import("common.zig");
 
 const CString = common.CString;
@@ -9,15 +9,15 @@ pub const validation_layer_name = "VK_LAYER_KHRONOS_validation";
 
 const SystemInfo = @This();
 
-available_layers: []const c.VkLayerProperties,
-available_extensions: std.ArrayList(c.VkExtensionProperties),
+available_layers: []const vk.c.VkLayerProperties,
+available_extensions: std.ArrayList(vk.c.VkExtensionProperties),
 validation_layers_available: bool = false,
 debug_utils_available: bool = false,
 
 pub inline fn init(allocator: std.mem.Allocator) !SystemInfo {
     var self: SystemInfo = undefined;
     self.available_extensions =
-        std.ArrayList(c.VkExtensionProperties).init(allocator);
+        std.ArrayList(vk.c.VkExtensionProperties).init(allocator);
     try self.available_extensions.appendSlice(
         try vk.enumerateInstanceExtensionProperties(allocator, null),
     );
@@ -45,7 +45,7 @@ pub inline fn init(allocator: std.mem.Allocator) !SystemInfo {
         if (std.mem.eql(
             u8,
             std.mem.span(ext_name),
-            c.VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+            vk.c.VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
         )) {
             self.debug_utils_available = true;
         }

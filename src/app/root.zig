@@ -22,9 +22,9 @@ fn Export(comptime T: type) type {
             self.* = T.create(allocator) catch |err| std.debug.panic("error on app create: {}\n", .{err});
             return self;
         }
-        export fn appInit(self: *T, out_config: *AppConfig) callconv(.C) u32 {
-            assertDecl(T, "init", fn (*T, *AppConfig) anyerror!void);
-            return if (self.init(out_config)) 0 else |err| @intFromError(err);
+        export fn appStart(self: *T, out_config: *AppConfig) callconv(.C) u32 {
+            assertDecl(T, "start", fn (*T, *AppConfig) anyerror!void);
+            return if (self.start(out_config)) 0 else |err| @intFromError(err);
         }
         export fn appReload(self: *T) callconv(.C) u32 {
             assertDecl(T, "reload", fn (*T) anyerror!void);

@@ -1,5 +1,12 @@
 const std = @import("std");
-const c = @import("c");
+
+pub const c = @cImport({
+    @cDefine("SDL_MAIN_HANDLED", {});
+    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL2/SDL_vulkan.h");
+    @cInclude("SDL2/SDL_syswm.h");
+});
+
 const vk = @import("../renderer/vulkan/vulkan.zig");
 const window_types = @import("window_types.zig");
 pub usingnamespace window_types;
@@ -88,8 +95,8 @@ pub const Window = struct {
         var surface: vk.SurfaceKHR = undefined;
         if (c.SDL_Vulkan_CreateSurface(
             self._sdl_window,
-            instance.handle(),
-            &surface,
+            @ptrCast(instance.handle()),
+            @ptrCast(&surface),
         ) != c.SDL_TRUE) {
             std.log.err(
                 "failed to create SDL vulkan surface: {s}",

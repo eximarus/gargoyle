@@ -1,21 +1,19 @@
 const std = @import("std");
-const c = @import("c");
 const vk = @import("vulkan.zig");
-const vma = @import("vma.zig");
+const c = vk.c;
 const math = @import("../../math/math.zig");
 
 pub const Image = extern struct {
     image: vk.Image,
     image_view: vk.ImageView,
-    allocation: vma.Allocation,
+    memory: c.VkDeviceMemory,
     image_extent: c.VkExtent3D,
     image_format: c.VkFormat,
 };
 
 pub const Buffer = extern struct {
     buffer: vk.Buffer,
-    allocation: vma.Allocation,
-    info: c.VmaAllocationInfo,
+    memory: vk.c.VkDeviceMemory,
 };
 
 pub const Vertex = extern struct {
