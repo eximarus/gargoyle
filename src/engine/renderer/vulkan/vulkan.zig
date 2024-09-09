@@ -3,12 +3,6 @@ const builtin = @import("builtin");
 
 pub const CString = [*:0]const u8;
 
-pub const c = @cImport({
-    @cDefine("VK_NO_PROTOTYPES", "");
-    @cDefine(getVkPlatformDefine(), "");
-    @cInclude("vulkan/vulkan.h");
-});
-
 fn getVkPlatformDefine() []const u8 {
     return if (builtin.abi == .android)
         "VK_USE_PLATFORM_ANDROID_KHR"
@@ -21,16 +15,11 @@ fn getVkPlatformDefine() []const u8 {
     };
 }
 
-fn getVkLibName() []const u8 {
-    return if (builtin.abi == .android)
-        "libvulkan.so.1"
-    else switch (builtin.os.tag) {
-        .ios, .macos => "libvulkan.1.dylib",
-        .windows => "vulkan-1.dll",
-        .linux => "libvulkan.so.1",
-        else => @compileError("platform not supported."),
-    };
-}
+pub const c = @cImport({
+    @cDefine("VK_NO_PROTOTYPES", "");
+    @cDefine(getVkPlatformDefine(), "");
+    @cInclude("vulkan/vulkan.h");
+});
 
 fn PFN(comptime T: type) type {
     return @typeInfo(T).Optional.child;
@@ -50,10 +39,19 @@ fn getInstanceProcAddr(instance: c.VkInstance, comptime name: []const u8) void {
 
 pub fn init() Result {
     if (vk_lib != null) {
-        return .Success;
+        return Error.InitializationFailed;
     }
 
-    var dyn_lib = std.DynLib.open(getVkLibName()) catch |err| {
+    const vk_lib_name = if (builtin.abi == .android)
+        "libvulkan.so.1"
+    else switch (builtin.os.tag) {
+        .ios, .macos => "libvulkan.1.dylib",
+        .windows => "vulkan-1.dll",
+        .linux => "libvulkan.so.1",
+        else => @compileError("platform not supported."),
+    };
+
+    var dyn_lib = std.DynLib.open(vk_lib_name) catch |err| {
         std.log.err("{}\n", .{err});
         return Error.InitializationFailed;
     };
@@ -89,30 +87,13 @@ var vkGetDeviceProcAddr: PFN(c.PFN_vkGetDeviceProcAddr) = undefined;
 
 var vkCreateDebugUtilsMessengerEXT: PFN(c.PFN_vkCreateDebugUtilsMessengerEXT) = undefined;
 var vkDestroyDebugUtilsMessengerEXT: PFN(c.PFN_vkDestroyDebugUtilsMessengerEXT) = undefined;
+var vkGetPhysicalDeviceMemoryProperties: PFN(c.PFN_vkGetPhysicalDeviceMemoryProperties) = undefined;
 
 var vkQueueSubmit: PFN(c.PFN_vkQueueSubmit) = undefined;
 var vkQueueSubmit2KHR: PFN(c.PFN_vkQueueSubmit2KHR) = undefined;
 var vkQueueWaitIdle: PFN(c.PFN_vkQueueWaitIdle) = undefined;
 var vkQueueBindSparse: PFN(c.PFN_vkQueueBindSparse) = undefined;
 var vkQueuePresentKHR: PFN(c.PFN_vkQueuePresentKHR) = undefined;
-var vkBeginCommandBuffer: PFN(c.PFN_vkBeginCommandBuffer) = undefined;
-var vkResetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
-var vkCmdPipelineBarrier2KHR: PFN(c.PFN_vkCmdPipelineBarrier2KHR) = undefined;
-var vkCmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
-var vkEndCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
-var vkCmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
-var vkCmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
-var vkCmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
-var vkCmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
-var vkCmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
-var vkCmdSetViewport: PFN(c.PFN_vkCmdSetViewport) = undefined;
-var vkCmdSetScissor: PFN(c.PFN_vkCmdSetScissor) = undefined;
-var vkCmdDispatch: PFN(c.PFN_vkCmdDispatch) = undefined;
-var vkCmdBeginRenderingKHR: PFN(c.PFN_vkCmdBeginRenderingKHR) = undefined;
-var vkCmdDraw: PFN(c.PFN_vkCmdDraw) = undefined;
-var vkCmdDrawIndexed: PFN(c.PFN_vkCmdDrawIndexed) = undefined;
-var vkCmdEndRenderingKHR: PFN(c.PFN_vkCmdEndRenderingKHR) = undefined;
-var vkCmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
 
 fn getDeviceProcAddr(device: c.VkDevice, comptime name: []const u8) void {
     @field(@This(), name) = @ptrCast(vkGetDeviceProcAddr(device, @ptrCast(name)));
@@ -128,15 +109,17 @@ pub inline fn createInstance(
     getInstanceProcAddr(self.handle(), "vkDestroyInstance");
     getInstanceProcAddr(self.handle(), "vkDestroySurfaceKHR");
     getInstanceProcAddr(self.handle(), "vkEnumeratePhysicalDevices");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceQueueFamilyProperties");
     getInstanceProcAddr(self.handle(), "vkEnumerateDeviceExtensionProperties");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceQueueFamilyProperties");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceSupportKHR");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceProperties2");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceFeatures2");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceFormatsKHR");
     getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceMemoryProperties");
 
+    // TODO guard if debug utils enabled
     getInstanceProcAddr(self.handle(), "vkCreateDebugUtilsMessengerEXT");
     getInstanceProcAddr(self.handle(), "vkDestroyDebugUtilsMessengerEXT");
 
@@ -147,24 +130,7 @@ pub inline fn createInstance(
     getInstanceProcAddr(self.handle(), "vkQueueWaitIdle");
     getInstanceProcAddr(self.handle(), "vkQueueBindSparse");
     getInstanceProcAddr(self.handle(), "vkQueuePresentKHR");
-    getInstanceProcAddr(self.handle(), "vkBeginCommandBuffer");
-    getInstanceProcAddr(self.handle(), "vkResetCommandBuffer");
-    getInstanceProcAddr(self.handle(), "vkCmdPipelineBarrier2KHR");
-    getInstanceProcAddr(self.handle(), "vkCmdClearColorImage");
-    getInstanceProcAddr(self.handle(), "vkEndCommandBuffer");
-    getInstanceProcAddr(self.handle(), "vkCmdCopyBuffer");
-    getInstanceProcAddr(self.handle(), "vkCmdBlitImage2KHR");
-    getInstanceProcAddr(self.handle(), "vkCmdBindPipeline");
-    getInstanceProcAddr(self.handle(), "vkCmdBindIndexBuffer");
-    getInstanceProcAddr(self.handle(), "vkCmdBindDescriptorSets");
-    getInstanceProcAddr(self.handle(), "vkCmdSetViewport");
-    getInstanceProcAddr(self.handle(), "vkCmdSetScissor");
-    getInstanceProcAddr(self.handle(), "vkCmdDispatch");
-    getInstanceProcAddr(self.handle(), "vkCmdBeginRenderingKHR");
-    getInstanceProcAddr(self.handle(), "vkCmdDraw");
-    getInstanceProcAddr(self.handle(), "vkCmdDrawIndexed");
-    getInstanceProcAddr(self.handle(), "vkCmdEndRenderingKHR");
-    getInstanceProcAddr(self.handle(), "vkCmdPushConstants");
+
     return self;
 }
 
@@ -359,6 +325,14 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         return supports_present != 0;
     }
 
+    pub inline fn getMemoryProperties(
+        self: PhysicalDevice,
+    ) c.VkPhysicalDeviceMemoryProperties {
+        var properties: c.VkPhysicalDeviceMemoryProperties = undefined;
+        vkGetPhysicalDeviceMemoryProperties(self.handle(), &properties);
+        return properties;
+    }
+
     pub inline fn getProperties2(
         self: PhysicalDevice,
         next: ?*anyopaque,
@@ -498,6 +472,40 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
         getDeviceProcAddr(device.handle(), "vkAcquireNextImageKHR");
         getDeviceProcAddr(device.handle(), "vkDestroyDevice");
 
+        getDeviceProcAddr(device.handle(), "vkCreateBuffer");
+        getDeviceProcAddr(device.handle(), "vkDestroyBuffer");
+        getDeviceProcAddr(device.handle(), "vkGetBufferMemoryRequirements");
+        getDeviceProcAddr(device.handle(), "vkBindBufferMemory");
+
+        getDeviceProcAddr(device.handle(), "vkCreateImage");
+        getDeviceProcAddr(device.handle(), "vkDestroyImage");
+        getDeviceProcAddr(device.handle(), "vkGetImageMemoryRequirements");
+        getDeviceProcAddr(device.handle(), "vkBindImageMemory");
+
+        getDeviceProcAddr(device.handle(), "vkAllocateMemory");
+        getDeviceProcAddr(device.handle(), "vkFreeMemory");
+        getDeviceProcAddr(device.handle(), "vkMapMemory");
+        getDeviceProcAddr(device.handle(), "vkUnmapMemory");
+
+        getDeviceProcAddr(device.handle(), "vkBeginCommandBuffer");
+        getDeviceProcAddr(device.handle(), "vkResetCommandBuffer");
+        getDeviceProcAddr(device.handle(), "vkCmdPipelineBarrier2KHR");
+        getDeviceProcAddr(device.handle(), "vkCmdClearColorImage");
+        getDeviceProcAddr(device.handle(), "vkEndCommandBuffer");
+        getDeviceProcAddr(device.handle(), "vkCmdCopyBuffer");
+        getDeviceProcAddr(device.handle(), "vkCmdBlitImage2KHR");
+        getDeviceProcAddr(device.handle(), "vkCmdBindPipeline");
+        getDeviceProcAddr(device.handle(), "vkCmdBindIndexBuffer");
+        getDeviceProcAddr(device.handle(), "vkCmdBindDescriptorSets");
+        getDeviceProcAddr(device.handle(), "vkCmdSetViewport");
+        getDeviceProcAddr(device.handle(), "vkCmdSetScissor");
+        getDeviceProcAddr(device.handle(), "vkCmdDispatch");
+        getDeviceProcAddr(device.handle(), "vkCmdBeginRenderingKHR");
+        getDeviceProcAddr(device.handle(), "vkCmdDraw");
+        getDeviceProcAddr(device.handle(), "vkCmdDrawIndexed");
+        getDeviceProcAddr(device.handle(), "vkCmdEndRenderingKHR");
+        getDeviceProcAddr(device.handle(), "vkCmdPushConstants");
+
         return device;
     }
 };
@@ -537,6 +545,40 @@ var vkGetBufferDeviceAddress: PFN(c.PFN_vkGetBufferDeviceAddress) = undefined;
 var vkAcquireNextImageKHR: PFN(c.PFN_vkAcquireNextImageKHR) = undefined;
 var vkDestroyDevice: PFN(c.PFN_vkDestroyDevice) = undefined;
 
+var vkCreateBuffer: PFN(c.PFN_vkCreateBuffer) = undefined;
+var vkDestroyBuffer: PFN(c.PFN_vkDestroyBuffer) = undefined;
+var vkGetBufferMemoryRequirements: PFN(c.PFN_vkGetBufferMemoryRequirements) = undefined;
+var vkBindBufferMemory: PFN(c.PFN_vkBindBufferMemory) = undefined;
+
+var vkCreateImage: PFN(c.PFN_vkCreateImage) = undefined;
+var vkDestroyImage: PFN(c.PFN_vkDestroyImage) = undefined;
+var vkGetImageMemoryRequirements: PFN(c.PFN_vkGetImageMemoryRequirements) = undefined;
+var vkBindImageMemory: PFN(c.PFN_vkBindImageMemory) = undefined;
+
+var vkAllocateMemory: PFN(c.PFN_vkAllocateMemory) = undefined;
+var vkFreeMemory: PFN(c.PFN_vkFreeMemory) = undefined;
+var vkMapMemory: PFN(c.PFN_vkMapMemory) = undefined;
+var vkUnmapMemory: PFN(c.PFN_vkUnmapMemory) = undefined;
+
+var vkBeginCommandBuffer: PFN(c.PFN_vkBeginCommandBuffer) = undefined;
+var vkResetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
+var vkCmdPipelineBarrier2KHR: PFN(c.PFN_vkCmdPipelineBarrier2KHR) = undefined;
+var vkCmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
+var vkEndCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
+var vkCmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
+var vkCmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
+var vkCmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
+var vkCmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
+var vkCmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
+var vkCmdSetViewport: PFN(c.PFN_vkCmdSetViewport) = undefined;
+var vkCmdSetScissor: PFN(c.PFN_vkCmdSetScissor) = undefined;
+var vkCmdDispatch: PFN(c.PFN_vkCmdDispatch) = undefined;
+var vkCmdBeginRenderingKHR: PFN(c.PFN_vkCmdBeginRenderingKHR) = undefined;
+var vkCmdDraw: PFN(c.PFN_vkCmdDraw) = undefined;
+var vkCmdDrawIndexed: PFN(c.PFN_vkCmdDrawIndexed) = undefined;
+var vkCmdEndRenderingKHR: PFN(c.PFN_vkCmdEndRenderingKHR) = undefined;
+var vkCmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
+
 pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     pub inline fn handle(self: Device) c.VkDevice {
         return @ptrCast(self);
@@ -561,6 +603,78 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
             &swapchain,
         ));
         return swapchain;
+    }
+
+    pub inline fn createBuffer(
+        self: Device,
+        info: *const c.VkBufferCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !Buffer {
+        var buffer: Buffer = undefined;
+        try vkCheck(vkCreateBuffer(self.handle(), info, allocator, &buffer));
+        return buffer;
+    }
+
+    pub inline fn bindBufferMemory(
+        self: Device,
+        buffer: Buffer,
+        memory: VkDeviceMemory,
+        memory_offset: c.VkDeviceSize,
+    ) !void {
+        return vkCheck(vkBindBufferMemory(self.handle(), buffer, memory, memory_offset));
+    }
+
+    pub inline fn destroyBuffer(
+        self: Device,
+        buffer: Buffer,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        vkDestroyBuffer(self.handle(), buffer, allocator);
+    }
+
+    pub inline fn createImage(
+        self: Device,
+        info: *const c.VkImageCreateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !Image {
+        var image: Image = undefined;
+        try vkCheck(vkCreateImage(self.handle(), info, allocator, &image));
+        return image;
+    }
+
+    pub inline fn bindImageMemory(
+        self: Device,
+        image: Image,
+        memory: VkDeviceMemory,
+        memory_offset: c.VkDeviceSize,
+    ) !void {
+        return vkCheck(vkBindImageMemory(self.handle(), image, memory, memory_offset));
+    }
+
+    pub inline fn destroyImage(
+        self: Device,
+        image: Image,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        vkDestroyImage(self.handle(), image, allocator);
+    }
+
+    pub inline fn allocateMemory(
+        self: Device,
+        info: *const c.VkMemoryAllocateInfo,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) !VkDeviceMemory {
+        var memory: VkDeviceMemory = undefined;
+        try vkCheck(vkAllocateMemory(self.handle(), info, allocator, &memory));
+        return memory;
+    }
+
+    pub inline fn freeMemory(
+        self: Device,
+        memory: VkDeviceMemory,
+        allocator: ?*const c.VkAllocationCallbacks,
+    ) void {
+        vkFreeMemory(self.handle(), memory, allocator);
     }
 
     pub inline fn destroySwapchainKHR(
@@ -979,11 +1093,61 @@ pub const Device = *align(@alignOf(c.VkDevice)) opaque {
         ));
     }
 
+    pub inline fn mapMemory(
+        self: Device,
+        memory: VkDeviceMemory,
+        offset: c.VkDeviceSize,
+        size: c.VkDeviceSize,
+        flags: c.VkMemoryMapFlags,
+    ) !*anyopaque {
+        var data: ?*anyopaque = undefined;
+        try vkCheck(vkMapMemory(
+            self.handle(),
+            memory,
+            offset,
+            size,
+            flags,
+            &data,
+        ));
+
+        return data orelse error.MappedToNullMemory;
+    }
+
+    pub inline fn unmapMemory(self: Device, memory: VkDeviceMemory) void {
+        vkUnmapMemory(self.handle(), memory);
+    }
+
     pub inline fn getBufferDeviceAddress(
         self: Device,
         info: *const c.VkBufferDeviceAddressInfo,
     ) c.VkDeviceAddress {
         return vkGetBufferDeviceAddress(self.handle(), info);
+    }
+
+    pub inline fn getBufferMemoryRequirements(
+        self: Device,
+        buffer: Buffer,
+    ) c.VkMemoryRequirements {
+        var requirements: c.VkMemoryRequirements = undefined;
+        vkGetBufferMemoryRequirements(
+            self.handle(),
+            buffer,
+            &requirements,
+        );
+        return requirements;
+    }
+
+    pub inline fn getImageMemoryRequirements(
+        self: Device,
+        image: Image,
+    ) c.VkMemoryRequirements {
+        var requirements: c.VkMemoryRequirements = undefined;
+        vkGetImageMemoryRequirements(
+            self.handle(),
+            image,
+            &requirements,
+        );
+        return requirements;
     }
 
     pub inline fn acquireNextImageKHR(
@@ -1302,6 +1466,7 @@ pub const Framebuffer = c.VkFramebuffer;
 pub const RenderPass = c.VkRenderPass;
 pub const PipelineCache = c.VkPipelineCache;
 pub const DebugUtilsMessengerEXT = c.VkDebugUtilsMessengerEXT;
+pub const VkDeviceMemory = c.VkDeviceMemory;
 
 pub inline fn vkBool32(value: bool) c.VkBool32 {
     return if (value) c.VK_TRUE else c.VK_FALSE;

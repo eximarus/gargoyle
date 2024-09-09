@@ -22,6 +22,8 @@ pub fn main() !void {
         const self_dir = try std.fs.selfExeDirPath(&self_dir_buf);
         const p = try std.fs.path.join(allocator, &[_][]const u8{
             self_dir,
+            "..",
+            "lib",
             config.app_lib_file,
         });
         break :blk p;

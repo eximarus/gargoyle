@@ -49,20 +49,6 @@ const FrameData = struct {
     render_fence: vk.Fence,
 };
 
-pub const ComputePushConstants = struct {
-    data1: math.Vec4,
-    data2: math.Vec4,
-    data3: math.Vec4,
-    data4: math.Vec4,
-};
-
-const ComputeEffect = struct {
-    name: CString,
-    pipeline: vk.Pipeline,
-    layout: vk.PipelineLayout,
-    data: ComputePushConstants,
-};
-
 gpa: std.mem.Allocator,
 arena: std.mem.Allocator,
 
@@ -93,16 +79,11 @@ draw_extent: c.VkExtent2D,
 draw_image_descriptors: vk.DescriptorSet,
 draw_image_descriptor_layout: vk.DescriptorSetLayout,
 
-gradient_pipeline_layout: vk.PipelineLayout,
-
 imm_fence: vk.Fence,
 imm_command_buffer: vk.CommandBuffer,
 imm_command_pool: vk.CommandPool,
 
 imm_descriptor_pool: vk.DescriptorPool,
-
-background_effects: std.ArrayList(ComputeEffect),
-current_background_effect: i32 = 0,
 
 mesh_pipeline_layout: vk.PipelineLayout,
 mesh_pipeline: vk.Pipeline,
@@ -131,6 +112,7 @@ pub fn init(
         .request_validation_layers = true,
         .required_api_ver = c.VK_MAKE_VERSION(1, 2, 197),
         .extensions = window_extensions,
+        .use_debug_messenger = true,
     });
     self.instance = bootstrap_inst.instance;
     self.debug_messenger = bootstrap_inst.debug_messenger;
@@ -187,24 +169,33 @@ pub fn init(
 
     self.draw_image.image_format = c.VK_FORMAT_R16G16B16A16_SFLOAT;
     self.draw_image.image_extent = draw_image_extent;
-    // const draw_image_usages =
-    //     c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-    //     c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-    //     c.VK_IMAGE_USAGE_STORAGE_BIT |
-    //     c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    const draw_image_usages =
+        c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+        c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+        c.VK_IMAGE_USAGE_STORAGE_BIT |
+        c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-    // self.draw_image.image, self.draw_image.allocation = try self.vma_allocator.createImage(
-    //     &vkinit.imageCreateInfo(
-    //         self.draw_image.image_format,
-    //         draw_image_usages,
-    //         draw_image_extent,
-    //     ),
-    //     &.{
-    //         .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
-    //         .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    //     },
-    //     null,
-    // );
+    self.draw_image.image = try self.device.createImage(
+        &vkinit.imageCreateInfo(
+            self.draw_image.image_format,
+            draw_image_usages,
+            draw_image_extent,
+        ),
+        null,
+    );
+
+    const req = self.device.getImageMemoryRequirements(self.draw_image.image);
+
+    self.draw_image.memory = try self.device.allocateMemory(&c.VkMemoryAllocateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = req.size,
+        .memoryTypeIndex = try self.findMemoryType(
+            req.memoryTypeBits,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ),
+    }, null);
+
+    try self.device.bindImageMemory(self.draw_image.image, self.draw_image.memory, 0);
 
     self.draw_image.image_view = try self.device.createImageView(
         &vkinit.imageViewCreateInfo(
@@ -218,19 +209,29 @@ pub fn init(
     self.depth_image.image_format = c.VK_FORMAT_D32_SFLOAT;
     self.depth_image.image_extent = draw_image_extent;
 
-    // const depth_image_usages = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    // self.depth_image.image, self.depth_image.allocation = try self.vma_allocator.createImage(
-    //     &vkinit.imageCreateInfo(
-    //         self.depth_image.image_format,
-    //         depth_image_usages,
-    //         draw_image_extent,
-    //     ),
-    //     &.{
-    //         .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
-    //         .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    //     },
-    //     null,
-    // );
+    const depth_image_usages = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    self.depth_image.image = try self.device.createImage(
+        &vkinit.imageCreateInfo(
+            self.depth_image.image_format,
+            depth_image_usages,
+            draw_image_extent,
+        ),
+        null,
+    );
+
+    const depth_req = self.device.getImageMemoryRequirements(self.depth_image.image);
+
+    self.depth_image.memory = try self.device.allocateMemory(&c.VkMemoryAllocateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = req.size,
+        .memoryTypeIndex = try self.findMemoryType(
+            depth_req.memoryTypeBits,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ),
+    }, null);
+
+    try self.device.bindImageMemory(self.depth_image.image, self.depth_image.memory, 0);
 
     self.depth_image.image_view = try self.device.createImageView(
         &vkinit.imageViewCreateInfo(
@@ -241,15 +242,12 @@ pub fn init(
         null,
     );
 
-    self.current_background_effect = 0;
-    self.background_effects = std.ArrayList(ComputeEffect).init(gpa);
-
     try self.initCommands();
     try self.initSync();
     try self.initDescriptors();
     try self.initPipelines();
-    try self.initImgui(window);
 
+    // try self.initImgui(window);
     try self.initDefaultData();
     return self;
 }
@@ -426,78 +424,6 @@ fn initDescriptors(self: *VulkanRenderer) !void {
 }
 
 fn initPipelines(self: *VulkanRenderer) !void {
-    self.gradient_pipeline_layout = try self.device.createPipelineLayout(&.{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .pSetLayouts = &self.draw_image_descriptor_layout,
-        .setLayoutCount = 1,
-
-        .pPushConstantRanges = &[1]c.VkPushConstantRange{
-            .{
-                .offset = 0,
-                .size = @sizeOf(ComputePushConstants),
-                .stageFlags = c.VK_SHADER_STAGE_COMPUTE_BIT,
-            },
-        },
-        .pushConstantRangeCount = 1,
-    }, null);
-
-    const gradient_shader = try pipelines.loadShaderModule(
-        "shaders/glsl/gradient.comp",
-        self.device,
-    );
-    defer self.device.destroyShaderModule(gradient_shader, null);
-
-    var compute_pipeline_create_info =
-        c.VkComputePipelineCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .layout = self.gradient_pipeline_layout,
-        .stage = c.VkPipelineShaderStageCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = c.VK_SHADER_STAGE_COMPUTE_BIT,
-            .module = gradient_shader,
-            .pName = "main",
-        },
-    };
-
-    const gradient = ComputeEffect{
-        .layout = self.gradient_pipeline_layout,
-        .name = "gradient",
-        .data = .{
-            .data1 = math.vec4(1, 0, 0, 1),
-            .data2 = math.vec4(0, 0, 1, 1),
-            .data3 = undefined,
-            .data4 = undefined,
-        },
-        .pipeline = try self.device.createComputePipelines(
-            null,
-            &.{compute_pipeline_create_info},
-            null,
-        ),
-    };
-
-    const sky_shader = try pipelines.loadShaderModule("shaders/glsl/sky.comp", self.device);
-    defer self.device.destroyShaderModule(sky_shader, null);
-    compute_pipeline_create_info.stage.module = sky_shader;
-
-    const sky = ComputeEffect{
-        .layout = self.gradient_pipeline_layout,
-        .name = "sky",
-        .data = .{
-            .data1 = math.vec4(0.1, 0.2, 0.4, 0.97),
-            .data2 = undefined,
-            .data3 = undefined,
-            .data4 = undefined,
-        },
-        .pipeline = try self.device.createComputePipelines(
-            null,
-            &.{compute_pipeline_create_info},
-            null,
-        ),
-    };
-
-    try self.background_effects.append(gradient);
-    try self.background_effects.append(sky);
-
     const triangle_frag_shader = try pipelines.loadShaderModule(
         "shaders/glsl/colored_triangle.frag",
         self.device,
@@ -606,58 +532,58 @@ fn createBuffer(
     self: *VulkanRenderer,
     alloc_size: usize,
     usage: c.VkBufferUsageFlags,
-    // memory_usage: c.VmaMemoryUsage,
+    memory_properties: c.VkMemoryPropertyFlags,
+    next: ?*anyopaque,
 ) !types.Buffer {
     var new_buffer: types.Buffer = undefined;
-    new_buffer = new_buffer;
-    _ = self;
-    _ = alloc_size;
-    _ = usage;
-    // new_buffer.buffer, new_buffer.allocation = try self.vma_allocator.createBuffer(
-    //     &c.VkBufferCreateInfo{
-    //         .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-    //         .size = @intCast(alloc_size),
-    //         .usage = usage,
-    //     },
-    //     &c.VmaAllocationCreateInfo{
-    //         // .usage = memory_usage,
-    //         .flags = c.VMA_ALLOCATION_CREATE_MAPPED_BIT,
-    //     },
-    //     &new_buffer.info,
-    // );
+
+    new_buffer.buffer = try self.device.createBuffer(
+        &c.VkBufferCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = @intCast(alloc_size),
+            .usage = usage,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        },
+        null,
+    );
+
+    const req = self.device.getBufferMemoryRequirements(new_buffer.buffer);
+
+    new_buffer.memory = try self.device.allocateMemory(&c.VkMemoryAllocateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = next,
+        .allocationSize = req.size,
+        .memoryTypeIndex = try self.findMemoryType(
+            req.memoryTypeBits,
+            memory_properties,
+        ),
+    }, null);
+
+    try self.device.bindBufferMemory(new_buffer.buffer, new_buffer.memory, 0);
     return new_buffer;
 }
 
-pub fn render(self: *VulkanRenderer, app: *App) !void {
-    imgui.ImGui_ImplVulkan_NewFrame();
-    imgui.c.ImGui_ImplSDL2_NewFrame();
-    imgui.c.igNewFrame();
+fn findMemoryType(self: *VulkanRenderer, type_filter: u32, properties: c.VkMemoryPropertyFlags) !u32 {
+    const mem_props = self.gpu.getMemoryProperties();
 
-    if (imgui.c.igBegin("Background", null, 0)) {
-        var selected = &self.background_effects.items[
-            @intCast(self.current_background_effect)
-        ];
-        imgui.c.igText("Selected effect: ", selected.name);
-
-        _ = imgui.c.igSliderInt(
-            "Effect Index",
-            &self.current_background_effect,
-            0,
-            @intCast(self.background_effects.items.len - 1),
-            null,
-            0,
-        );
-
-        _ = imgui.c.igInputFloat4("data1", @ptrCast(&selected.data.data1), null, 0);
-        _ = imgui.c.igInputFloat4("data2", @ptrCast(&selected.data.data2), null, 0);
-        _ = imgui.c.igInputFloat4("data3", @ptrCast(&selected.data.data3), null, 0);
-        _ = imgui.c.igInputFloat4("data4", @ptrCast(&selected.data.data4), null, 0);
-
-        imgui.c.igEnd();
+    for (0..mem_props.memoryTypeCount) |i| {
+        if (type_filter & (@as(u32, 1) << @intCast(i)) != 0 and (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
+            return @intCast(i);
+        }
     }
-    _ = app.onGui();
 
-    imgui.c.igRender();
+    return error.SuitableMemoryTypeNotFound;
+}
+
+pub fn render(self: *VulkanRenderer, app: *App) !void {
+    _ = app;
+    // imgui.ImGui_ImplVulkan_NewFrame();
+    // imgui.c.ImGui_ImplSDL2_NewFrame();
+    // imgui.c.igNewFrame();
+    //
+    // _ = app.onGui();
+    //
+    // imgui.c.igRender();
 
     const frame = self.getCurrentFrame();
     const timeout = 1 * std.time.ns_per_s;
@@ -688,11 +614,6 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
         self.draw_image.image,
         c.VK_IMAGE_LAYOUT_UNDEFINED,
         c.VK_IMAGE_LAYOUT_GENERAL,
-    );
-
-    vkdraw.background(
-        self,
-        frame.command_buffer,
     );
 
     vkdraw.transitionImage(
@@ -735,11 +656,11 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
         c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     );
 
-    vkdraw.gui(
-        frame.command_buffer,
-        self.swapchain_image_views.items[swapchain_image_index],
-        self.swapchain_extent,
-    );
+    // vkdraw.gui(
+    //     frame.command_buffer,
+    //     self.swapchain_image_views.items[swapchain_image_index],
+    //     self.swapchain_extent,
+    // );
 
     vkdraw.transitionImage(
         frame.command_buffer,
@@ -790,7 +711,11 @@ pub fn uploadMesh(
         c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
             c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        // c.VMA_MEMORY_USAGE_GPU_ONLY,
+        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        @constCast(&c.VkMemoryAllocateFlagsInfo{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+            .flags = c.VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+        }),
     );
     mesh.vb_addr = self.device.getBufferDeviceAddress(
         &c.VkBufferDeviceAddressInfo{
@@ -801,19 +726,22 @@ pub fn uploadMesh(
     mesh.index_buffer = try self.createBuffer(
         ib_size,
         c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        // c.VMA_MEMORY_USAGE_GPU_ONLY,
+        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        null,
     );
 
     const staging = try self.createBuffer(
         vb_size + ib_size,
         c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        // c.VMA_MEMORY_USAGE_CPU_ONLY,
+        c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        null,
     );
 
-    // var data: [*]u8 = @ptrCast(try self.vma_allocator.mapMemory(staging.allocation));
-    // @memcpy(data, std.mem.sliceAsBytes(vertices));
-    // @memcpy(data[vb_size..], std.mem.sliceAsBytes(indices));
-    // self.vma_allocator.unmapMemory(staging.allocation);
+    // TODO allocate larger chunks of memory at once and use offsets
+    var data: [*]u8 = @ptrCast(try self.device.mapMemory(staging.memory, 0, vb_size + ib_size, 0));
+    @memcpy(data, std.mem.sliceAsBytes(vertices));
+    @memcpy(data[vb_size..], std.mem.sliceAsBytes(indices));
+    self.device.unmapMemory(staging.memory);
 
     try self.immediateSubmit(struct {
         vertex_buffer: vk.Buffer,
@@ -847,7 +775,8 @@ pub fn uploadMesh(
         .staging_buffer = staging.buffer,
     });
 
-    // self.vma_allocator.destroyBuffer(staging.buffer, staging.allocation);
+    self.device.destroyBuffer(staging.buffer, null);
+    self.device.freeMemory(staging.memory, null);
 
     return mesh;
 }
@@ -903,8 +832,8 @@ fn destroySwapchain(self: *VulkanRenderer) void {
 pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
 
-    imgui.ImGui_ImplVulkan_Shutdown();
-    self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
+    // imgui.ImGui_ImplVulkan_Shutdown();
+    // self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
 
     self.device.destroyDescriptorSetLayout(self.draw_image_descriptor_layout, null);
     self.device.destroyDescriptorPool(self.global_descriptor_pool, null);
@@ -912,33 +841,20 @@ pub fn deinit(self: *VulkanRenderer) void {
     self.device.destroyPipelineLayout(self.mesh_pipeline_layout, null);
     self.device.destroyPipeline(self.mesh_pipeline, null);
 
-    self.device.destroyPipelineLayout(self.gradient_pipeline_layout, null);
-    for (self.background_effects.items) |*effect| {
-        self.device.destroyPipeline(effect.pipeline, null);
-    }
-    self.background_effects.deinit();
-
     self.device.destroyImageView(self.draw_image.image_view, null);
-    // self.vma_allocator.destroyImage(
-    //     self.draw_image.image,
-    //     self.draw_image.allocation,
-    // );
+    self.device.destroyImage(self.draw_image.image, null);
+    self.device.freeMemory(self.draw_image.memory, null);
 
     self.device.destroyImageView(self.depth_image.image_view, null);
-    // self.vma_allocator.destroyImage(
-    //     self.depth_image.image,
-    //     self.depth_image.allocation,
-    // );
+    self.device.destroyImage(self.depth_image.image, null);
+    self.device.freeMemory(self.depth_image.memory, null);
 
     for (self.test_meshes) |mesh_asset| {
-        // self.vma_allocator.destroyBuffer(
-        //     mesh_asset.mesh.index_buffer.buffer,
-        //     mesh_asset.mesh.index_buffer.allocation,
-        // );
-        // self.vma_allocator.destroyBuffer(
-        //     mesh_asset.mesh.vertex_buffer.buffer,
-        //     mesh_asset.mesh.vertex_buffer.allocation,
-        // );
+        self.device.destroyBuffer(mesh_asset.mesh.index_buffer.buffer, null);
+        self.device.freeMemory(mesh_asset.mesh.index_buffer.memory, null);
+
+        self.device.destroyBuffer(mesh_asset.mesh.vertex_buffer.buffer, null);
+        self.device.freeMemory(mesh_asset.mesh.vertex_buffer.memory, null);
         self.gpa.free(mesh_asset.surfaces);
     }
     self.gpa.free(self.test_meshes);
@@ -955,7 +871,6 @@ pub fn deinit(self: *VulkanRenderer) void {
 
     self.destroySwapchain();
     self.instance.destroySurfaceKHR(self.surface, null);
-    // self.vma_allocator.destroy();
     self.device.destroy(null);
     self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null) catch {};
     self.instance.destroy(null);

@@ -52,6 +52,6 @@ pub fn poll(handler: EventHandler) void {
             },
             else => {},
         }
-        _ = imgui.c.ImGui_ImplSDL2_ProcessEvent(@ptrCast(&event));
+        // _ = imgui.c.ImGui_ImplSDL2_ProcessEvent(@ptrCast(&event));
     }
 }

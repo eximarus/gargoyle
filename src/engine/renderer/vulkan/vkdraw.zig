@@ -12,52 +12,6 @@ const types = @import("types.zig");
 const math = @import("../../math/math.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
-pub fn background(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
-    cmd.clearColorImage(
-        self.draw_image.image,
-        c.VK_IMAGE_LAYOUT_GENERAL,
-        &.{
-            .float32 = .{
-                100.0 / 255.0,
-                149.0 / 255.0,
-                237.0 / 255.0,
-                0.0,
-            },
-        },
-        &.{vkinit.imageSubresourceRange(c.VK_IMAGE_ASPECT_COLOR_BIT)},
-    );
-
-    const effect = self.background_effects.items[
-        @intCast(self.current_background_effect)
-    ];
-
-    cmd.bindPipeline(
-        c.VK_PIPELINE_BIND_POINT_COMPUTE,
-        effect.pipeline,
-    );
-    cmd.bindDescriptorSets(
-        c.VK_PIPELINE_BIND_POINT_COMPUTE,
-        self.gradient_pipeline_layout,
-        0,
-        &.{self.draw_image_descriptors},
-        &.{},
-    );
-
-    cmd.pushConstants(
-        self.gradient_pipeline_layout,
-        c.VK_SHADER_STAGE_COMPUTE_BIT,
-        0,
-        @sizeOf(VulkanRenderer.ComputePushConstants),
-        &effect.data,
-    );
-
-    cmd.dispatch(
-        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.width)) / 16.0)),
-        @intFromFloat(@ceil(@as(f32, @floatFromInt(self.draw_extent.height)) / 16.0)),
-        1,
-    );
-}
-
 pub fn gui(
     cmd: vk.CommandBuffer,
     target_image_view: vk.ImageView,

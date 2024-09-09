@@ -252,9 +252,9 @@ fn defaultDebugCallback(
         );
     }
 
-    for (0..cb_data.*.objectCount) |i| {
-        std.log.info("{x}\n", .{cb_data.*.pObjects[i].objectHandle});
-    }
+    // for (0..cb_data.*.objectCount) |i| {
+    //     std.log.info("{x}\n", .{cb_data.*.pObjects[i].objectHandle});
+    // }
 
     return c.VK_FALSE;
 }
