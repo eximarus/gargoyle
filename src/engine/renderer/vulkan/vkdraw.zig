@@ -4,31 +4,12 @@ const config = @import("config");
 const vk = @import("vulkan.zig");
 const c = vk.c;
 const vkinit = @import("vkinit.zig");
-const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
 const types = @import("types.zig");
 const math = @import("../../math/math.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
-
-pub fn gui(
-    cmd: vk.CommandBuffer,
-    target_image_view: vk.ImageView,
-    target_extent: c.VkExtent2D,
-) void {
-    cmd.beginRendering(&vkinit.renderingInfo(
-        target_extent,
-        &vkinit.attachmentInfo(
-            target_image_view,
-            null,
-            c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        ),
-        null,
-    ));
-    imgui.ImGui_ImplVulkan_RenderDrawData(imgui.c.igGetDrawData(), cmd.handle(), null);
-    cmd.endRendering();
-}
 
 pub inline fn transitionImage(
     cmd: vk.CommandBuffer,
@@ -120,10 +101,10 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         100.0,
     );
 
-    const mesh_asset = self.test_meshes[2];
+    const mesh = self.test_meshes[2];
     var push_constants = types.DrawPushConstants{
         .world_matrix = projection.mul(view.mul(model)),
-        .vertex_buffer = mesh_asset.mesh.vb_addr,
+        .vertex_buffer = mesh.vb_addr,
     };
 
     cmd.pushConstants(
@@ -134,9 +115,8 @@ pub fn geometry(self: *VulkanRenderer, cmd: vk.CommandBuffer) void {
         &push_constants,
     );
 
-    cmd.bindIndexBuffer(mesh_asset.mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    const surface = mesh_asset.surfaces[0];
-    cmd.drawIndexed(surface.count, 1, surface.start_index, 0, 0);
+    cmd.bindIndexBuffer(mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
+    cmd.drawIndexed(@intCast(mesh.index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
     cmd.endRendering();
 }
 

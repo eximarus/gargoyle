@@ -1,122 +1,75 @@
 const std = @import("std");
 const math = @import("../../math/math.zig");
-
-const c = @cImport({
-    @cInclude("cgltf.h");
-});
-
-const CString = [*:0]const u8;
-
+const gltf = @import("../../resources/gltf.zig");
 const types = @import("types.zig");
+
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
-pub const GeoSurface = struct {
-    start_index: u32,
-    count: u32,
-};
+pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh {
+    const glb = try gltf.load(path, renderer.arena);
+    const accessors = glb.gltf.accessors orelse return error.InvalidGltf;
+    const gltf_meshes = glb.gltf.meshes orelse return error.InvalidGltf;
+    const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
+    const bin = glb.bin orelse return error.InvalidGltf;
 
-pub const MeshAssets = struct {
-    name: CString,
-    surfaces: []GeoSurface,
-    mesh: types.Mesh,
-};
+    var indices = std.ArrayList(u32).init(renderer.arena);
+    var vertices = std.ArrayList(types.Vertex).init(renderer.arena);
 
-const Attributes = struct {
-    position: ?*c.cgltf_accessor = null,
-    normal: ?*c.cgltf_accessor = null,
-    tangent: ?*c.cgltf_accessor = null,
-    texcoord: ?*c.cgltf_accessor = null,
-    color: ?*c.cgltf_accessor = null,
-    joints: ?*c.cgltf_accessor = null,
-    weights: ?*c.cgltf_accessor = null,
-    custom: ?*c.cgltf_accessor = null,
-};
-
-pub const GltfError = error{
-    DataTooShort,
-    UnknownFormat,
-    InvalidJson,
-    InvalidGltf,
-    InvalidOptions,
-    FileNotFound,
-    IOError,
-    OutOfMemory,
-    LegacyGltf,
-
-    UnknownResult,
-};
-
-pub fn gltfError(result: c.cgltf_result) GltfError!void {
-    return switch (result) {
-        c.cgltf_result_success => {},
-        c.cgltf_result_data_too_short => GltfError.DataTooShort,
-        c.cgltf_result_unknown_format => GltfError.UnknownFormat,
-        c.cgltf_result_invalid_json => GltfError.InvalidJson,
-        c.cgltf_result_invalid_gltf => GltfError.InvalidGltf,
-        c.cgltf_result_invalid_options => GltfError.InvalidOptions,
-        c.cgltf_result_file_not_found => GltfError.FileNotFound,
-        c.cgltf_result_io_error => GltfError.IOError,
-        c.cgltf_result_out_of_memory => GltfError.OutOfMemory,
-        c.cgltf_result_legacy_gltf => GltfError.LegacyGltf,
-        else => GltfError.UnknownResult,
-    };
-}
-
-pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: CString) ![]MeshAssets {
-    const options = c.cgltf_options{};
-
-    var data: *c.cgltf_data = undefined;
-    try gltfError(c.cgltf_parse_file(&options, path, @ptrCast(&data)));
-    defer c.cgltf_free(data);
-
-    try gltfError(c.cgltf_load_buffers(&options, data, path));
-    try gltfError(c.cgltf_validate(data));
-
-    var indices = std.ArrayList(u32).init(renderer.gpa);
-    defer indices.deinit();
-    var vertices = std.ArrayList(types.Vertex).init(renderer.gpa);
-    defer vertices.deinit();
-
-    const meshes = try renderer.gpa.alloc(MeshAssets, data.meshes_count);
-    for (data.meshes[0..data.meshes_count], meshes) |gltf_mesh, *mesh_assets| {
-        mesh_assets.name = gltf_mesh.name;
-
+    const meshes = try renderer.gpa.alloc(types.Mesh, gltf_meshes.len);
+    for (gltf_meshes, meshes) |gltf_mesh, *mesh| {
         indices.clearRetainingCapacity();
         vertices.clearRetainingCapacity();
 
-        mesh_assets.surfaces = try renderer.gpa.alloc(GeoSurface, gltf_mesh.primitives_count);
-        for (
-            gltf_mesh.primitives[0..gltf_mesh.primitives_count],
-            mesh_assets.surfaces,
-        ) |p, *surface| {
-            surface.start_index = @intCast(indices.items.len);
-            surface.count = @intCast(p.indices.*.count);
+        for (gltf_mesh.primitives) |p| {
+            const idx_acc = accessors[p.indices orelse return error.InvalidGltf];
+            const idx_count = idx_acc.count;
+            const idx_buffer_view_idx = idx_acc.bufferView orelse return error.InvalidGltf;
+            const idx_buffer_view = buffer_views[idx_buffer_view_idx];
+            const idx_data_offset = idx_buffer_view.byteOffset + idx_acc.byteOffset;
+            const idx_data_len = idx_buffer_view.byteLength;
+            const idx_data = bin[idx_data_offset..(idx_data_offset + idx_data_len)];
 
-            try indices.ensureUnusedCapacity(surface.count);
-            _ = c.cgltf_accessor_unpack_indices(
-                p.indices,
-                @ptrCast(indices.unusedCapacitySlice()[0..surface.count]),
-                @sizeOf(u32),
-                p.indices.*.count,
-            );
-            indices.items.len += surface.count;
+            const component_size = idx_acc.componentType.size();
+            try indices.ensureUnusedCapacity(idx_count);
+            const idx_slice = indices.unusedCapacitySlice()[0..idx_count];
 
-            const attributes = createAttributeTable(&p);
-            const posAccessor = attributes.position orelse break;
-            try vertices.ensureUnusedCapacity(posAccessor.count);
+            var k: usize = 0;
+            for (0..idx_count) |j| {
+                idx_slice[j] = std.mem.bytesToValue(u32, idx_data[k..(k + component_size)]);
+                k += component_size;
+            }
+            indices.items.len += idx_count;
 
-            for (vertices.unusedCapacitySlice()[0..posAccessor.count], 0..) |*vertex, index| {
-                _ = c.cgltf_accessor_read_float(posAccessor, index, @ptrCast(&vertex.position), 3);
+            const pos_acc = accessors[p.findAttribute("POSITION") orelse return error.InvalidGltf];
+            const vtx_count = pos_acc.count;
 
-                if (attributes.normal) |normal| {
-                    _ = c.cgltf_accessor_read_float(normal, index, @ptrCast(&vertex.normal), 3);
+            try vertices.ensureUnusedCapacity(vtx_count);
+            const vtx_slice = vertices.unusedCapacitySlice()[0..vtx_count];
+
+            const normal_acc = if (p.findAttribute("NORMAL")) |attr| accessors[attr] else null;
+            const texcoord_acc = if (p.findAttribute("TEXCOORD_0")) |attr| accessors[attr] else null;
+            const color_acc = if (p.findAttribute("COLOR_0")) |attr| accessors[attr] else null;
+
+            for (vtx_slice, 0..) |*vertex, i| {
+                const stride = @sizeOf(@TypeOf(vertex.position));
+                const buffer_view_idx = pos_acc.bufferView orelse return error.InvalidGltf;
+                const buffer_view = buffer_views[buffer_view_idx];
+                const vtx_data_offset = buffer_view.byteOffset + pos_acc.byteOffset + stride * i;
+                const vtx_data_len = stride;
+                const vtx_data = bin[vtx_data_offset..(vtx_data_offset + vtx_data_len)];
+                @memcpy(std.mem.asBytes(&vertex.position), vtx_data);
+
+                if (normal_acc) |acc| {
+                    const normals = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.normal)));
+                    @memcpy(std.mem.asBytes(&vertex.normal), normals);
                 } else {
                     vertex.normal = math.vec3(1, 0, 0);
                 }
 
-                if (attributes.texcoord) |texcoord| {
+                if (texcoord_acc) |acc| {
                     var uvs: math.Vec2 = undefined;
-                    _ = c.cgltf_accessor_read_float(texcoord, index, @ptrCast(&uvs), 2);
+                    const texcoords = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(uvs)));
+                    @memcpy(std.mem.asBytes(&uvs), texcoords);
                     vertex.uv_x = uvs.x;
                     vertex.uv_y = uvs.y;
                 } else {
@@ -124,8 +77,9 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: CString) ![]MeshAssets {
                     vertex.uv_y = 0;
                 }
 
-                if (attributes.color) |color| {
-                    _ = c.cgltf_accessor_read_float(color, index, @ptrCast(&vertex.color), 4);
+                if (color_acc) |acc| {
+                    const colors = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.color)));
+                    @memcpy(std.mem.asBytes(&vertex.color), colors);
                 } else {
                     vertex.color = math.color4(1.0, 1.0, 1.0, 1.0);
                 }
@@ -133,7 +87,7 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: CString) ![]MeshAssets {
                 vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
                 vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
             }
-            vertices.items.len += posAccessor.count;
+            vertices.items.len += vtx_count;
         }
 
         // flip indices for left handed system
@@ -150,42 +104,17 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: CString) ![]MeshAssets {
             }
         }
 
-        mesh_assets.mesh = try renderer.uploadMesh(indices.items, vertices.items);
+        // const json = try std.json.stringifyAlloc(
+        //     renderer.arena,
+        //     .{
+        //         .indices = indices.items,
+        //         .vertices = vertices.items,
+        //     },
+        //     .{ .whitespace = .indent_4 },
+        // );
+        // std.debug.print("{s}\n", .{json});
+
+        mesh.* = try renderer.uploadMesh(indices.items, vertices.items);
     }
     return meshes;
-}
-
-fn createAttributeTable(p: *const c.cgltf_primitive) Attributes {
-    var attributes = Attributes{};
-    for (0..p.attributes_count) |attr_idx| {
-        const attr = p.attributes[attr_idx];
-        switch (attr.type) {
-            c.cgltf_attribute_type_position => {
-                attributes.position = attr.data;
-            },
-            c.cgltf_attribute_type_normal => {
-                attributes.normal = attr.data;
-            },
-            c.cgltf_attribute_type_tangent => {
-                attributes.tangent = attr.data;
-            },
-            c.cgltf_attribute_type_texcoord => {
-                attributes.texcoord = attr.data;
-            },
-            c.cgltf_attribute_type_color => {
-                attributes.color = attr.data;
-            },
-            c.cgltf_attribute_type_joints => {
-                attributes.joints = attr.data;
-            },
-            c.cgltf_attribute_type_weights => {
-                attributes.weights = attr.data;
-            },
-            c.cgltf_attribute_type_custom => {
-                attributes.custom = attr.data;
-            },
-            else => {},
-        }
-    }
-    return attributes;
 }

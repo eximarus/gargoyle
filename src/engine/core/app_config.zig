@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const WindowConfig = @import("window_types.zig").Config;
-
 pub const RenderConfig = extern struct {
     vsync: bool = true,
     tripple_buffering: bool = false,
@@ -18,7 +16,7 @@ pub const PhysicsConfig = extern struct {
 };
 
 pub const AppConfig = extern struct {
-    window: WindowConfig = .{ .title = "gargoyle" },
+    title: [*:0]const u8 = "gargoyle",
     physics: PhysicsConfig = .{},
     render: RenderConfig = .{},
 };

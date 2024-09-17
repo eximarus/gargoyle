@@ -1,20 +1,22 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target = b.standardTargetOptions(.{
+        .default_target = .{
+            .os_tag = .windows,
+            .cpu_arch = .x86_64,
+        },
+    });
     const optimize = b.standardOptimizeOption(.{});
+
     const gargoyle_dep = b.dependency("gargoyle", .{
         .target = target,
         .optimize = optimize,
-        .app_name = @as([]const u8, "sandbox"),
-        .app_root = @as([]const u8, b.pathFromRoot("src/root.zig")),
     });
 
     for (gargoyle_dep.builder.install_tls.step.dependencies.items) |dep_step| {
         if (dep_step.cast(std.Build.Step.InstallArtifact)) |inst| {
-            b.getInstallStep().dependOn(&b.addInstallArtifact(inst.artifact, .{
-                .dest_dir = .{ .override = inst.dest_dir.? },
-            }).step);
+            b.installArtifact(inst.artifact);
         }
     }
 

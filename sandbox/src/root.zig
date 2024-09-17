@@ -16,12 +16,7 @@ pub const App = struct {
     pub fn start(self: *App, out_config: *AppConfig) anyerror!void {
         _ = self;
         out_config.* = AppConfig{};
-        out_config.window.title = "sandbox";
-        out_config.window.mode = .windowed;
-        out_config.window.size = @constCast(&.{
-            .width = 1700,
-            .height = 900,
-        });
+        out_config.title = "sandbox";
 
         std.log.info("sandbox start\n", .{});
     }

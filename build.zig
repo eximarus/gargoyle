@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 pub const GraphicsApi = enum {
     vulkan,
+    // vulkan_sc
     // opengl,
     // opengl_es,
     //
@@ -18,12 +19,6 @@ pub const GraphicsApi = enum {
 };
 
 pub fn build(b: *std.Build) !void {
-    const graphics_api = b.option(
-        GraphicsApi,
-        "graphics_api",
-        "Which graphics api should be used for the render backend?",
-    ) orelse .vulkan;
-
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -31,17 +26,17 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/engine/root.zig"),
+        .link_libc = true,
     });
 
-    linkSdl(b, gargoyle_mod);
-    linkImgui(b, gargoyle_mod);
-    linkCgltf(b, gargoyle_mod);
+    var vulkan_dep = b.dependency("vulkan", .{});
+    gargoyle_mod.addIncludePath(vulkan_dep.path("include"));
 
     const conf = b.addOptions();
     conf.addOption(
         GraphicsApi,
         "graphics_api",
-        graphics_api,
+        .vulkan,
     );
     gargoyle_mod.addOptions("config", conf);
     addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/colored_triangle.vert"));
@@ -81,25 +76,25 @@ pub fn build(b: *std.Build) !void {
     app_conf.addOption([]const u8, "app_lib_file", app_lib.out_filename);
     exe.root_module.addOptions("config", app_conf);
 
-    exe.want_lto = false; // TODO zig bug
-
     b.installArtifact(exe);
 
-    const run_exe = b.addRunArtifact(exe);
-    const run_step = b.step("run", "Run the application");
-    run_step.dependOn(&run_exe.step);
+    // const exe_unit_tests = b.addTest(.{
+    //     .name = "test",
+    //     .root_source_file = b.path("src/main.zig"),
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // exe_unit_tests.root_module.addImport("gargoyle", gargoyle_mod);
+    //
+    // const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    // const test_step = b.step("test", "Run unit tests");
+    // test_step.dependOn(&run_exe_unit_tests.step);
 
-    const exe_unit_tests = b.addTest(.{
-        .name = "test",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe_unit_tests.root_module.addImport("gargoyle", gargoyle_mod);
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_exe_unit_tests.step);
+    // const linux_step = b.step("linux", "Create an AppImage for linux");
+    // const android_step = b.step("android", "Create an Apk for Android");
+    // const windows_step = b.step("windows", "Create a Windows Installer File");
+    // const ios_step = b.step("ios", "Create a ios app");
+    // const mac_step = b.step("mac", "Create a macos app");
 }
 
 pub fn addGlslShader(
@@ -120,76 +115,4 @@ pub fn addGlslShader(
     obj.addAnonymousImport(file.getDisplayName(), .{
         .root_source_file = out_file,
     });
-}
-
-fn linkSdl(b: *std.Build, mod: *std.Build.Module) void {
-    mod.link_libc = true;
-    if (mod.resolved_target.?.result.os.tag == .windows) {
-        const dep = b.dependency("sdl_win32", .{});
-        mod.addIncludePath(dep.path("include"));
-        mod.addLibraryPath(dep.path("lib/x64"));
-        mod.linkSystemLibrary("SDL2", .{ .use_pkg_config = .no });
-    } else {
-        mod.linkSystemLibrary("SDL2", .{});
-    }
-}
-
-fn linkCgltf(b: *std.Build, obj: *std.Build.Module) void {
-    const dep = b.dependency("cgltf", .{});
-    obj.addIncludePath(dep.path(""));
-    obj.addCSourceFile(.{
-        .file = b.path("src/cgltf.c"),
-        .flags = &.{
-            "-std=c99",
-        },
-    });
-}
-
-fn linkImgui(b: *std.Build, obj: *std.Build.Module) void {
-    const target = obj.resolved_target.?;
-    const dep = b.dependency("imgui", .{});
-
-    const lib = b.addStaticLibrary(.{
-        .name = "cimgui",
-        .target = target,
-        .optimize = .ReleaseFast,
-    });
-    lib.linkLibCpp();
-
-    linkSdl(b, &lib.root_module);
-
-    lib.addIncludePath(dep.path("imgui"));
-    lib.addIncludePath(dep.path("imgui/backends"));
-    lib.addIncludePath(dep.path(""));
-
-    lib.addCSourceFiles(.{
-        .root = dep.path(""),
-        .files = &.{
-            "cimgui.cpp",
-
-            "imgui/imgui.cpp",
-            "imgui/imgui_draw.cpp",
-            "imgui/imgui_demo.cpp",
-            "imgui/imgui_widgets.cpp",
-
-            "imgui/imgui_tables.cpp",
-
-            "imgui/backends/imgui_impl_sdl2.cpp",
-            "imgui/backends/imgui_impl_vulkan.cpp",
-        },
-        .flags = &.{
-            "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
-            "-DIMGUI_IMPL_VULKAN_NO_PROTOTYPES=",
-            if (target.result.os.tag == .windows)
-                "-DIMGUI_IMPL_API=extern \"C\" __declspec(dllexport)"
-            else
-                "-DIMGUI_IMPL_API=extern \"C\" ",
-        },
-    });
-
-    obj.linkLibrary(lib);
-    obj.addCMacro("CIMGUI_USE_VULKAN", "");
-    obj.addCMacro("CIMGUI_USE_SDL2", "");
-    obj.addIncludePath(dep.path(""));
-    obj.addIncludePath(dep.path("generator/output"));
 }

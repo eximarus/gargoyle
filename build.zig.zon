@@ -2,15 +2,9 @@
     .name = "gargoyle",
     .version = "0.1.0",
     .dependencies = .{
-        .sdl_win32 = .{
-            .path = "./lib/win32/SDL2-2.0.20",
-        },
-        .imgui = .{
-            .path = "./submodules/cimgui",
-        },
-        .cgltf = .{
-            .url = "https://github.com/jkuhlmann/cgltf/archive/v1.14.tar.gz",
-            .hash = "12209ac27a63c8a2eeb5691f139eaa1d7d1fcee223e8fa9763da3a592253c6b57032",
+        .vulkan = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.3.280.0.tar.gz",
+            .hash = "1220187753c774088bf6cb8dfb97763c3f082d4c95299fe6cc322c809dc297be9826",
         },
     },
     .paths = .{

@@ -5,7 +5,6 @@ const c = vk.c;
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
 const vkdraw = @import("vkdraw.zig");
-const imgui = @import("imgui.zig");
 const common = @import("common.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
@@ -83,11 +82,9 @@ imm_fence: vk.Fence,
 imm_command_buffer: vk.CommandBuffer,
 imm_command_pool: vk.CommandPool,
 
-imm_descriptor_pool: vk.DescriptorPool,
-
 mesh_pipeline_layout: vk.PipelineLayout,
 mesh_pipeline: vk.Pipeline,
-test_meshes: []loader.MeshAssets,
+test_meshes: []types.Mesh,
 
 pub fn init(
     gpa: std.mem.Allocator,
@@ -125,7 +122,8 @@ pub fn init(
     self.swapchain_image_views = std.ArrayList(vk.ImageView).init(gpa);
     self.swapchain_image_format = c.VK_FORMAT_B8G8R8A8_UNORM;
 
-    const window_extent = window.getSize();
+    // TODO
+    const window_extent = .{ .height = 1280, .width = 720 };
     const bootstrap_swapchain = try Swapchain.init(
         arena,
         self.gpu,
@@ -247,7 +245,6 @@ pub fn init(
     try self.initDescriptors();
     try self.initPipelines();
 
-    // try self.initImgui(window);
     try self.initDefaultData();
     return self;
 }
@@ -481,53 +478,6 @@ fn initSync(self: *VulkanRenderer) !void {
     self.imm_fence = try self.device.createFence(&fence_create_info, null);
 }
 
-fn initImgui(self: *VulkanRenderer, window: Window) !void {
-    const pool_sizes = [_]c.VkDescriptorPoolSize{
-        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount = 1000 },
-        .{ .type = c.VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount = 1000 },
-    };
-
-    self.imm_descriptor_pool = try self.device.createDescriptorPool(&.{
-        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = c.VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-        .maxSets = 1000,
-        .poolSizeCount = pool_sizes.len,
-        .pPoolSizes = &pool_sizes,
-    }, null);
-
-    _ = imgui.c.igCreateContext(null);
-
-    _ = imgui.c.ImGui_ImplSDL2_InitForVulkan(@ptrCast(window._sdl_window));
-
-    _ = imgui.ImGui_ImplVulkan_Init(&.{
-        .instance = self.instance.handle(),
-        .physical_device = self.gpu.handle(),
-        .device = self.device.handle(),
-        .queue = self.graphics_queue.handle(),
-        .descriptor_pool = self.imm_descriptor_pool,
-        .min_image_count = 3,
-        .image_count = 3,
-        .msaa_samples = c.VK_SAMPLE_COUNT_1_BIT,
-        .use_dynamic_rendering = true,
-        .pipeline_rendering_create_info = .{
-            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-            .colorAttachmentCount = 1,
-            .pColorAttachmentFormats = &[1]c.VkFormat{self.swapchain_image_format},
-        },
-    });
-
-    _ = imgui.ImGui_ImplVulkan_CreateFontsTexture();
-}
-
 fn createBuffer(
     self: *VulkanRenderer,
     alloc_size: usize,
@@ -536,6 +486,7 @@ fn createBuffer(
     next: ?*anyopaque,
 ) !types.Buffer {
     var new_buffer: types.Buffer = undefined;
+    new_buffer.size = alloc_size;
 
     new_buffer.buffer = try self.device.createBuffer(
         &c.VkBufferCreateInfo{
@@ -577,14 +528,6 @@ fn findMemoryType(self: *VulkanRenderer, type_filter: u32, properties: c.VkMemor
 
 pub fn render(self: *VulkanRenderer, app: *App) !void {
     _ = app;
-    // imgui.ImGui_ImplVulkan_NewFrame();
-    // imgui.c.ImGui_ImplSDL2_NewFrame();
-    // imgui.c.igNewFrame();
-    //
-    // _ = app.onGui();
-    //
-    // imgui.c.igRender();
-
     const frame = self.getCurrentFrame();
     const timeout = 1 * std.time.ns_per_s;
 
@@ -656,12 +599,6 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
         c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     );
 
-    // vkdraw.gui(
-    //     frame.command_buffer,
-    //     self.swapchain_image_views.items[swapchain_image_index],
-    //     self.swapchain_extent,
-    // );
-
     vkdraw.transitionImage(
         frame.command_buffer,
         next_image,
@@ -685,6 +622,7 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
     const submit = vkinit.submitInfo(&.{cmd_info}, &.{signal_info}, &.{wait_info});
     try vk.check(self.graphics_queue.submit2(&.{submit}, frame.render_fence));
 
+    std.debug.print("before present\n", .{});
     try vk.check(self.graphics_queue.presentKHR(&.{
         .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pSwapchains = &self.swapchain,
@@ -717,6 +655,7 @@ pub fn uploadMesh(
             .flags = c.VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
         }),
     );
+
     mesh.vb_addr = self.device.getBufferDeviceAddress(
         &c.VkBufferDeviceAddressInfo{
             .sType = c.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
@@ -832,9 +771,6 @@ fn destroySwapchain(self: *VulkanRenderer) void {
 pub fn deinit(self: *VulkanRenderer) void {
     _ = self.device.waitIdle() catch {};
 
-    // imgui.ImGui_ImplVulkan_Shutdown();
-    // self.device.destroyDescriptorPool(self.imm_descriptor_pool, null);
-
     self.device.destroyDescriptorSetLayout(self.draw_image_descriptor_layout, null);
     self.device.destroyDescriptorPool(self.global_descriptor_pool, null);
 
@@ -850,12 +786,11 @@ pub fn deinit(self: *VulkanRenderer) void {
     self.device.freeMemory(self.depth_image.memory, null);
 
     for (self.test_meshes) |mesh_asset| {
-        self.device.destroyBuffer(mesh_asset.mesh.index_buffer.buffer, null);
-        self.device.freeMemory(mesh_asset.mesh.index_buffer.memory, null);
+        self.device.destroyBuffer(mesh_asset.index_buffer.buffer, null);
+        self.device.freeMemory(mesh_asset.index_buffer.memory, null);
 
-        self.device.destroyBuffer(mesh_asset.mesh.vertex_buffer.buffer, null);
-        self.device.freeMemory(mesh_asset.mesh.vertex_buffer.memory, null);
-        self.gpa.free(mesh_asset.surfaces);
+        self.device.destroyBuffer(mesh_asset.vertex_buffer.buffer, null);
+        self.device.freeMemory(mesh_asset.vertex_buffer.memory, null);
     }
     self.gpa.free(self.test_meshes);
 

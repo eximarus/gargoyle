@@ -14,6 +14,7 @@ pub const Image = extern struct {
 pub const Buffer = extern struct {
     buffer: vk.Buffer,
     memory: vk.c.VkDeviceMemory,
+    size: usize,
 };
 
 pub const Vertex = extern struct {
@@ -24,10 +25,11 @@ pub const Vertex = extern struct {
     color: math.Color4,
 };
 
-pub const Mesh = extern struct {
+pub const Mesh = struct {
     index_buffer: Buffer,
     vertex_buffer: Buffer,
     vb_addr: c.VkDeviceAddress,
+    name: ?[]const u8,
 };
 
 pub const DrawPushConstants = extern struct {

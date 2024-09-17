@@ -42,9 +42,7 @@ pub fn init() Result {
         return Error.InitializationFailed;
     }
 
-    const vk_lib_name = if (builtin.abi == .android)
-        "libvulkan.so.1"
-    else switch (builtin.os.tag) {
+    const vk_lib_name = switch (builtin.os.tag) {
         .ios, .macos => "libvulkan.1.dylib",
         .windows => "vulkan-1.dll",
         .linux => "libvulkan.so.1",

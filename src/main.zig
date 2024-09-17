@@ -10,10 +10,7 @@ pub fn main() !void {
     const buf_size = 6 * 1024 * 1024 * 1024;
     const buf = try std.heap.c_allocator.alloc(u8, buf_size);
     var fba = std.heap.FixedBufferAllocator.init(buf);
-
-    var arena = std.heap.ArenaAllocator.init(fba.allocator());
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = fba.allocator();
 
     const lib_path = if (builtin.os.tag == .windows)
         config.app_lib_file

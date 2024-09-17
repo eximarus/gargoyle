@@ -3,7 +3,6 @@ const App = @import("app_types.zig").App;
 const AppConfig = @import("app_config.zig").AppConfig;
 
 const time = @import("time.zig");
-const events = @import("events.zig");
 const Window = @import("window.zig").Window;
 const Renderer = @import("../renderer/renderer.zig").Renderer;
 
@@ -23,7 +22,7 @@ pub const Engine = struct {
         gpa: std.mem.Allocator,
         cfg: *const AppConfig,
     ) !Engine {
-        const window = try Window.init(&cfg.window);
+        const window = try Window.init(cfg.title);
         var arena = std.heap.ArenaAllocator.init(gpa);
 
         return Engine{
@@ -44,8 +43,6 @@ pub const Engine = struct {
         const fixed_dt = time.nanosToSeconds(fixed_timestep);
         self.fixed_delta += dt_ns;
 
-        events.poll(self.eventHandler());
-
         // todo interpolate physics for vsync?
         while (self.fixed_delta >= fixed_timestep) {
             _ = app.fixedUpdate(fixed_dt);
@@ -60,6 +57,7 @@ pub const Engine = struct {
 
         self.renderer.render(app) catch |err| {
             std.log.err("gargoyle render error: {}\n", .{err});
+            @panic("RENDER ERROR");
         };
 
         _ = self.arena.reset(.{ .retain_with_limit = 4096 });
@@ -71,34 +69,5 @@ pub const Engine = struct {
         self.renderer.deinit();
         self.window.deinit();
         self.arena.deinit();
-    }
-
-    fn eventHandler(self: *Engine) events.EventHandler {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .onWindowMinimized = onWindowMinimized,
-                .onWindowRestored = onWindowRestored,
-                .onQuit = onQuit,
-                .onWindowResize = onWindowResize,
-            },
-        };
-    }
-
-    fn onWindowMinimized(ctx: *anyopaque) void {
-        const self: *Engine = @ptrCast(@alignCast(ctx));
-        self.minimized = true;
-    }
-    fn onWindowRestored(ctx: *anyopaque) void {
-        const self: *Engine = @ptrCast(@alignCast(ctx));
-        self.minimized = false;
-    }
-    fn onQuit(ctx: *anyopaque) void {
-        const self: *Engine = @ptrCast(@alignCast(ctx));
-        self.quit = true;
-    }
-    fn onWindowResize(ctx: *anyopaque, width: u32, height: u32) void {
-        const self: *Engine = @ptrCast(@alignCast(ctx));
-        self.renderer.onWindowResize(width, height);
     }
 };
