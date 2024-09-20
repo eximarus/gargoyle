@@ -3,22 +3,18 @@ const g = @import("gargoyle");
 const AppConfig = g.AppConfig;
 
 pub const App = struct {
-    // engine: *gargoyle.Engine,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
 
-    pub fn create(allocator: std.mem.Allocator) anyerror!App {
-        return App{
-            .allocator = allocator,
-            // .engine = engine,
+    pub fn create(gpa: std.mem.Allocator) anyerror!*App {
+        const app = try gpa.create(App);
+        app.* = App{
+            .gpa = gpa,
         };
+        return app;
     }
 
-    pub fn start(self: *App, out_config: *AppConfig) anyerror!void {
-        _ = self;
-        out_config.* = AppConfig{};
-        out_config.title = "sandbox";
-
-        std.log.info("sandbox start\n", .{});
+    pub fn configure() g.AppConfig {
+        return g.AppConfig{};
     }
 
     pub fn update(self: *App, dt: f32) anyerror!void {
@@ -33,18 +29,8 @@ pub const App = struct {
         // std.log.info("sandbox fixedUpdate: {d}\n", .{dt});
     }
 
-    pub fn reload(self: *App) anyerror!void {
+    pub fn shutdown(self: *App) void {
         _ = self;
-        std.log.info("sandbox reload\n", .{});
-    }
-
-    pub fn onGui(self: *App) anyerror!void {
-        _ = self;
-        // std.log.info("sandbox onGui\n", .{});
-    }
-
-    pub fn deinit(self: *App) void {
-        _ = self;
-        std.log.info("sandbox deinit\n", .{});
+        std.log.info("sandbox shutdown\n", .{});
     }
 };

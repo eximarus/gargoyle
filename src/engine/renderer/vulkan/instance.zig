@@ -1,18 +1,17 @@
 const std = @import("std");
+const c = @import("c");
 const vk = @import("vulkan.zig");
-const c = vk.c;
 const common = @import("common.zig");
 const CString = common.CString;
 const SystemInfo = @import("SystemInfo.zig");
-const Window = @import("../../core/window.zig").Window;
 
-const Instance = @This();
+const Out = struct {
+    vk.Instance,
+    vk.DebugUtilsMessengerEXT,
+    ?*c.VkAllocationCallbacks,
+};
 
-instance: vk.Instance,
-debug_messenger: vk.DebugUtilsMessengerEXT = null,
-alloc_cb: ?*c.VkAllocationCallbacks = null,
-
-pub fn init(
+pub fn create(
     arena: std.mem.Allocator,
     info: *const struct {
         // VkApplicationInfo
@@ -53,7 +52,7 @@ pub fn init(
         use_debug_messenger: bool = false,
         headless_context: bool = false,
     },
-) !Instance {
+) !Out {
     const system = try SystemInfo.init(arena);
 
     var instance_version = c.VK_API_VERSION_1_0;
@@ -198,13 +197,14 @@ pub fn init(
         }
     }
 
-    var self = Instance{
-        .instance = try vk.createInstance(&instance_create_info, info.allocation_callbacks),
-        .alloc_cb = info.allocation_callbacks,
+    var self = Out{
+        try vk.createInstance(&instance_create_info, info.allocation_callbacks),
+        null,
+        info.allocation_callbacks,
     };
 
     if (info.use_debug_messenger) {
-        self.debug_messenger = try self.instance.createDebugUtilsMessengerEXT(
+        self[1] = try self[0].createDebugUtilsMessengerEXT(
             &.{
                 .sType = c.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
                 .pNext = null,
@@ -228,26 +228,27 @@ fn defaultDebugCallback(
 ) callconv(.C) c.VkBool32 {
     _ = user_data;
 
+    const log = std.log.scoped(.vulkan);
     const message = cb_data.*.pMessage;
     const mt = messageTypeToString(message_type);
     if (severity & c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT != 0) {
-        std.log.err(
-            "[Vulkan: {s}]\n{s}\n",
+        log.err(
+            "[{s}]\n{s}\n",
             .{ mt, message },
         );
     } else if (severity & c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT != 0) {
-        std.log.warn(
-            "[Vulkan: {s}]\n{s}\n",
+        log.warn(
+            "[{s}]\n{s}\n",
             .{ mt, message },
         );
     } else if (severity & c.VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT != 0) {
-        std.log.info(
-            "[Vulkan: {s}]\n{s}\n",
+        log.info(
+            "[{s}]\n{s}\n",
             .{ mt, message },
         );
     } else {
-        std.log.debug(
-            "[Vulkan: {s}]\n{s}\n",
+        log.debug(
+            "[{s}]\n{s}\n",
             .{ mt, message },
         );
     }

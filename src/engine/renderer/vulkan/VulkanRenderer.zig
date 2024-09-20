@@ -1,6 +1,7 @@
 const std = @import("std");
 const config = @import("config");
-const c = vk.c;
+const c = @import("c");
+const platform = @import("platform");
 
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
@@ -12,13 +13,13 @@ const math = @import("../../math/math.zig");
 const types = @import("types.zig");
 const loader = @import("loader.zig");
 
-const Config = @import("../../core/app_config.zig").RenderConfig;
-const CString = common.CString;
-const Window = @import("../../core/window.zig").Window;
+const Config = @import("../../core/AppConfig.zig").RenderConfig;
 const Swapchain = @import("Swapchain.zig");
-const Instance = @import("Instance.zig");
+const inst = @import("instance.zig");
 const PhysicalDevice = @import("PhysicalDevice.zig");
-const App = @import("../../core/app_types.zig").App;
+
+const CString = common.CString;
+const Window = platform.Window;
 
 const required_device_extensions: []const CString = &.{
     c.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -27,25 +28,25 @@ const required_device_extensions: []const CString = &.{
     c.VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
     c.VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
     c.VK_EXT_MESH_SHADER_EXTENSION_NAME,
+};
 
-    // TODO optional extensions when available
+const optional_device_extensions: []const CString = &.{
     // these dont work in wsl
     // ray tracing
-    // c.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-    // c.VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-
+    c.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    c.VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
     // required for VK_KHR_acceleration_structure
-    // c.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+    c.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
 };
 
 const VulkanRenderer = @This();
 
-const FrameData = struct {
+const Frame = struct {
     command_pool: vk.CommandPool,
     command_buffer: vk.CommandBuffer,
+    render_fence: vk.Fence,
     swapchain_semaphore: vk.Semaphore,
     render_semaphore: vk.Semaphore,
-    render_fence: vk.Fence,
 };
 
 gpa: std.mem.Allocator,
@@ -67,7 +68,7 @@ graphics_queue_family: ?u32 = null,
 graphics_queue: vk.Queue,
 
 frame_number: usize = 0,
-frames: []FrameData,
+frames: []Frame,
 frame_overlap: usize = 2,
 
 global_descriptor_pool: vk.DescriptorPool,
@@ -92,8 +93,6 @@ pub fn init(
     window: Window,
     options: Config,
 ) !VulkanRenderer {
-    const window_extensions = try window.getVulkanExtensions(arena);
-
     try vk.check(vk.init());
 
     var self: VulkanRenderer = undefined;
@@ -102,19 +101,22 @@ pub fn init(
     self.frame_number = 0;
     self.graphics_queue_family = null;
     self.frame_overlap = if (options.tripple_buffering) 3 else 2;
-    self.frames = try gpa.alloc(FrameData, self.frame_overlap);
+    self.frames = try gpa.alloc(Frame, self.frame_overlap);
 
-    const bootstrap_inst = try Instance.init(arena, &.{
-        .app_name = "sandbox",
+    const instance, const debug_messenger, _ = try inst.create(arena, &.{
+        .app_name = "gargoyle_app",
         .request_validation_layers = true,
         .required_api_ver = c.VK_MAKE_VERSION(1, 2, 197),
-        .extensions = window_extensions,
+        .extensions = &.{ platform.vk.surface_ext, "VK_KHR_surface" },
         .use_debug_messenger = true,
     });
-    self.instance = bootstrap_inst.instance;
-    self.debug_messenger = bootstrap_inst.debug_messenger;
+    self.instance = instance;
+    self.debug_messenger = debug_messenger;
 
-    self.surface = try window.createVulkanSurface(self.instance);
+    const result, const surface = platform.vk.createSurface(window, self.instance.handle());
+    try vk.check(vk.result(result));
+
+    self.surface = @ptrCast(surface);
     try self.createVkDevice();
     self.graphics_queue = try self.device.getQueue(self.graphics_queue_family.?, 0);
 
@@ -122,8 +124,6 @@ pub fn init(
     self.swapchain_image_views = std.ArrayList(vk.ImageView).init(gpa);
     self.swapchain_image_format = c.VK_FORMAT_B8G8R8A8_UNORM;
 
-    // TODO
-    const window_extent = .{ .height = 1280, .width = 720 };
     const bootstrap_swapchain = try Swapchain.init(
         arena,
         self.gpu,
@@ -143,8 +143,8 @@ pub fn init(
                     c.VK_PRESENT_MODE_IMMEDIATE_KHR,
             },
             .desired_extent = .{
-                .width = window_extent.width,
-                .height = window_extent.height,
+                .width = window.width,
+                .height = window.height,
             },
             .image_usage_flags = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                 c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
@@ -160,8 +160,8 @@ pub fn init(
     );
 
     const draw_image_extent = c.VkExtent3D{
-        .width = window_extent.width,
-        .height = window_extent.height,
+        .width = window.width,
+        .height = window.height,
         .depth = 1,
     };
 
@@ -250,7 +250,31 @@ pub fn init(
 }
 
 fn initDefaultData(self: *VulkanRenderer) !void {
-    self.test_meshes = try loader.loadGltfMeshes(self, "basicmesh.glb");
+    self.test_meshes = try self.gpa.alloc(types.Mesh, 1);
+    self.test_meshes[0] = try self.uploadMesh(
+        &.{ 3, 1, 0, 3, 2, 1 },
+        &.{
+            types.Vertex{
+                .position = .{ .x = 0.5, .y = 0.5, .z = 0 },
+                .color = .{ .r = 1, .g = 0, .b = 0, .a = 1 },
+            },
+            types.Vertex{
+                .position = .{ .x = 0.5, .y = -0.5, .z = 0 },
+                .color = .{ .r = 0, .g = 1, .b = 0, .a = 1 },
+            },
+
+            types.Vertex{
+                .position = .{ .x = -0.5, .y = -0.5, .z = 0 },
+                .color = .{ .r = 0, .g = 0, .b = 1, .a = 1 },
+            },
+
+            types.Vertex{
+                .position = .{ .x = -0.5, .y = 0.5, .z = 0 },
+                .color = .{ .r = 1, .g = 0, .b = 0, .a = 1 },
+            },
+        },
+    );
+    // self.test_meshes = try loader.loadGltfMeshes(self, "basicmesh.glb");
 }
 
 fn createVkDevice(self: *VulkanRenderer) !void {
@@ -346,7 +370,7 @@ fn createVkDevice(self: *VulkanRenderer) !void {
     self.device = try self.gpu.createDevice(&device_info, null);
 }
 
-inline fn getCurrentFrame(self: *VulkanRenderer) *FrameData {
+inline fn getCurrentFrame(self: *VulkanRenderer) *Frame {
     return &self.frames[@rem(self.frame_number, self.frame_overlap)];
 }
 
@@ -526,7 +550,7 @@ fn findMemoryType(self: *VulkanRenderer, type_filter: u32, properties: c.VkMemor
     return error.SuitableMemoryTypeNotFound;
 }
 
-pub fn render(self: *VulkanRenderer, app: *App) !void {
+pub fn render(self: *VulkanRenderer, app: anytype) !void {
     _ = app;
     const frame = self.getCurrentFrame();
     const timeout = 1 * std.time.ns_per_s;
@@ -622,7 +646,6 @@ pub fn render(self: *VulkanRenderer, app: *App) !void {
     const submit = vkinit.submitInfo(&.{cmd_info}, &.{signal_info}, &.{wait_info});
     try vk.check(self.graphics_queue.submit2(&.{submit}, frame.render_fence));
 
-    std.debug.print("before present\n", .{});
     try vk.check(self.graphics_queue.presentKHR(&.{
         .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .pSwapchains = &self.swapchain,

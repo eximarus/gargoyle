@@ -1,6 +1,6 @@
 const std = @import("std");
+const c = @import("c");
 const vk = @import("vulkan.zig");
-const c = vk.c;
 const CString = @import("common.zig").CString;
 
 pub inline fn imageCreateInfo(

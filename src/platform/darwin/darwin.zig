@@ -7,6 +7,8 @@ const objc = struct {
     extern fn objc_msgSend() callconv(.C) void;
 };
 
+pub const vk_lib_name = "libvulkan.1.dylib";
+
 const CAMetalLayer = opaque {
     fn layer() ?*CAMetalLayer {
         const Fn = *fn (self: objc.id, op: objc.SEL) ?*CAMetalLayer;
@@ -52,3 +54,7 @@ const NSView = opaque {
         func(@ptrCast(self), objc.sel_getUid("setLayer:"), value);
     }
 };
+
+// pub const IOSWindow = extern struct {
+//     // view: ?*anyopaque, // either a CAMetalLayer or a UIView
+// };

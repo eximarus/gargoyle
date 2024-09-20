@@ -1,97 +1,41 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const c = @import("c");
+const platform = @import("platform");
 
 pub const CString = [*:0]const u8;
 
-fn getVkPlatformDefine() []const u8 {
-    return if (builtin.abi == .android)
-        "VK_USE_PLATFORM_ANDROID_KHR"
-    else switch (builtin.os.tag) {
-        .ios => "VK_USE_PLATFORM_IOS_MVK",
-        .macos => "VK_USE_PLATFORM_MACOS_MVK",
-        .windows => "VK_USE_PLATFORM_WIN32_KHR",
-        .linux => "VK_USE_PLATFORM_WAYLAND_KHR",
-        else => @compileError("platform not supported."),
-    };
-}
-
-pub const c = @cImport({
-    @cDefine("VK_NO_PROTOTYPES", "");
-    @cDefine(getVkPlatformDefine(), "");
-    @cInclude("vulkan/vulkan.h");
-});
-
-fn PFN(comptime T: type) type {
+pub fn PFN(comptime T: type) type {
     return @typeInfo(T).Optional.child;
 }
 
-var vk_lib: ?std.DynLib = null;
+var initialized = false;
+var vk_lib: std.DynLib = undefined;
 
 var vkGetInstanceProcAddr: PFN(c.PFN_vkGetInstanceProcAddr) = undefined;
-var vkCreateInstance: PFN(c.PFN_vkCreateInstance) = undefined;
-var vkEnumerateInstanceExtensionProperties: PFN(c.PFN_vkEnumerateInstanceExtensionProperties) = undefined;
-var vkEnumerateInstanceLayerProperties: PFN(c.PFN_vkEnumerateInstanceLayerProperties) = undefined;
-var vkEnumerateInstanceVersion: PFN(c.PFN_vkEnumerateInstanceVersion) = undefined;
-
 fn getInstanceProcAddr(instance: c.VkInstance, comptime name: []const u8) void {
     @field(@This(), name) = @ptrCast(vkGetInstanceProcAddr(instance, @ptrCast(name)));
 }
 
 pub fn init() Result {
-    if (vk_lib != null) {
+    if (initialized) {
         return Error.InitializationFailed;
     }
 
-    const vk_lib_name = switch (builtin.os.tag) {
-        .ios, .macos => "libvulkan.1.dylib",
-        .windows => "vulkan-1.dll",
-        .linux => "libvulkan.so.1",
-        else => @compileError("platform not supported."),
-    };
-
-    var dyn_lib = std.DynLib.open(vk_lib_name) catch |err| {
+    vk_lib = std.DynLib.open(platform.vk.lib_path) catch |err| {
         std.log.err("{}\n", .{err});
         return Error.InitializationFailed;
     };
-    vk_lib = dyn_lib;
 
-    vkGetInstanceProcAddr = dyn_lib.lookup(c.PFN_vkGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse {
-        return Error.InitializationFailed;
-    } orelse {
+    vkGetInstanceProcAddr = vk_lib.lookup(PFN(c.PFN_vkGetInstanceProcAddr), "vkGetInstanceProcAddr") orelse {
         return Error.InitializationFailed;
     };
 
-    getInstanceProcAddr(null, "vkCreateInstance");
-    getInstanceProcAddr(null, "vkEnumerateInstanceExtensionProperties");
-    getInstanceProcAddr(null, "vkEnumerateInstanceLayerProperties");
-    getInstanceProcAddr(null, "vkEnumerateInstanceVersion");
+    loadGlobalFunctions();
 
+    initialized = true;
     return .Success;
 }
-
-var vkEnumeratePhysicalDevices: PFN(c.PFN_vkEnumeratePhysicalDevices) = undefined;
-var vkDestroySurfaceKHR: PFN(c.PFN_vkDestroySurfaceKHR) = undefined;
-var vkDestroyInstance: PFN(c.PFN_vkDestroyInstance) = undefined;
-var vkGetPhysicalDeviceQueueFamilyProperties: PFN(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties) = undefined;
-var vkEnumerateDeviceExtensionProperties: PFN(c.PFN_vkEnumerateDeviceExtensionProperties) = undefined;
-var vkGetPhysicalDeviceSurfaceSupportKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR) = undefined;
-var vkGetPhysicalDeviceProperties2: PFN(c.PFN_vkGetPhysicalDeviceProperties2) = undefined;
-var vkGetPhysicalDeviceFeatures2: PFN(c.PFN_vkGetPhysicalDeviceFeatures2) = undefined;
-var vkGetPhysicalDeviceSurfaceCapabilitiesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) = undefined;
-var vkGetPhysicalDeviceSurfaceFormatsKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) = undefined;
-var vkGetPhysicalDeviceSurfacePresentModesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) = undefined;
-var vkCreateDevice: PFN(c.PFN_vkCreateDevice) = undefined;
-var vkGetDeviceProcAddr: PFN(c.PFN_vkGetDeviceProcAddr) = undefined;
-
-var vkCreateDebugUtilsMessengerEXT: PFN(c.PFN_vkCreateDebugUtilsMessengerEXT) = undefined;
-var vkDestroyDebugUtilsMessengerEXT: PFN(c.PFN_vkDestroyDebugUtilsMessengerEXT) = undefined;
-var vkGetPhysicalDeviceMemoryProperties: PFN(c.PFN_vkGetPhysicalDeviceMemoryProperties) = undefined;
-
-var vkQueueSubmit: PFN(c.PFN_vkQueueSubmit) = undefined;
-var vkQueueSubmit2KHR: PFN(c.PFN_vkQueueSubmit2KHR) = undefined;
-var vkQueueWaitIdle: PFN(c.PFN_vkQueueWaitIdle) = undefined;
-var vkQueueBindSparse: PFN(c.PFN_vkQueueBindSparse) = undefined;
-var vkQueuePresentKHR: PFN(c.PFN_vkQueuePresentKHR) = undefined;
 
 fn getDeviceProcAddr(device: c.VkDevice, comptime name: []const u8) void {
     @field(@This(), name) = @ptrCast(vkGetDeviceProcAddr(device, @ptrCast(name)));
@@ -103,32 +47,10 @@ pub inline fn createInstance(
 ) !Instance {
     var self: Instance = undefined;
     try vkCheck(vkCreateInstance(create_info, allocator, @ptrCast(&self)));
-
-    getInstanceProcAddr(self.handle(), "vkDestroyInstance");
-    getInstanceProcAddr(self.handle(), "vkDestroySurfaceKHR");
-    getInstanceProcAddr(self.handle(), "vkEnumeratePhysicalDevices");
-    getInstanceProcAddr(self.handle(), "vkEnumerateDeviceExtensionProperties");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceQueueFamilyProperties");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceSupportKHR");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceProperties2");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceFeatures2");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfaceFormatsKHR");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceSurfacePresentModesKHR");
-    getInstanceProcAddr(self.handle(), "vkGetPhysicalDeviceMemoryProperties");
+    try platform.vk.init(vkGetInstanceProcAddr, self.handle());
+    loadInstanceFunctions(self.handle());
 
     // TODO guard if debug utils enabled
-    getInstanceProcAddr(self.handle(), "vkCreateDebugUtilsMessengerEXT");
-    getInstanceProcAddr(self.handle(), "vkDestroyDebugUtilsMessengerEXT");
-
-    getInstanceProcAddr(self.handle(), "vkCreateDevice");
-    getInstanceProcAddr(self.handle(), "vkGetDeviceProcAddr");
-    getInstanceProcAddr(self.handle(), "vkQueueSubmit");
-    getInstanceProcAddr(self.handle(), "vkQueueSubmit2KHR");
-    getInstanceProcAddr(self.handle(), "vkQueueWaitIdle");
-    getInstanceProcAddr(self.handle(), "vkQueueBindSparse");
-    getInstanceProcAddr(self.handle(), "vkQueuePresentKHR");
-
     return self;
 }
 
@@ -434,148 +356,10 @@ pub const PhysicalDevice = *align(@alignOf(c.VkPhysicalDevice)) opaque {
             @ptrCast(&device),
         ));
 
-        getDeviceProcAddr(device.handle(), "vkGetDeviceQueue");
-        getDeviceProcAddr(device.handle(), "vkCreateSwapchainKHR");
-        getDeviceProcAddr(device.handle(), "vkDestroySwapchainKHR");
-        getDeviceProcAddr(device.handle(), "vkCreateShaderModule");
-        getDeviceProcAddr(device.handle(), "vkCreatePipelineLayout");
-        getDeviceProcAddr(device.handle(), "vkDestroyShaderModule");
-        getDeviceProcAddr(device.handle(), "vkDestroyPipelineLayout");
-        getDeviceProcAddr(device.handle(), "vkCreateComputePipelines");
-        getDeviceProcAddr(device.handle(), "vkCreateGraphicsPipelines");
-        getDeviceProcAddr(device.handle(), "vkDestroyPipeline");
-        getDeviceProcAddr(device.handle(), "vkCreateImageView");
-        getDeviceProcAddr(device.handle(), "vkDestroyImageView");
-        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
-        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
-        getDeviceProcAddr(device.handle(), "vkGetSwapchainImagesKHR");
-        getDeviceProcAddr(device.handle(), "vkCreateDescriptorPool");
-        getDeviceProcAddr(device.handle(), "vkResetDescriptorPool");
-        getDeviceProcAddr(device.handle(), "vkDestroyDescriptorPool");
-        getDeviceProcAddr(device.handle(), "vkAllocateDescriptorSets");
-        getDeviceProcAddr(device.handle(), "vkCreateCommandPool");
-        getDeviceProcAddr(device.handle(), "vkAllocateCommandBuffers");
-        getDeviceProcAddr(device.handle(), "vkCreateDescriptorSetLayout");
-        getDeviceProcAddr(device.handle(), "vkDestroyDescriptorSetLayout");
-        getDeviceProcAddr(device.handle(), "vkUpdateDescriptorSets");
-        getDeviceProcAddr(device.handle(), "vkDeviceWaitIdle");
-        getDeviceProcAddr(device.handle(), "vkDestroyCommandPool");
-        getDeviceProcAddr(device.handle(), "vkCreateFence");
-        getDeviceProcAddr(device.handle(), "vkDestroyFence");
-        getDeviceProcAddr(device.handle(), "vkCreateSemaphore");
-        getDeviceProcAddr(device.handle(), "vkDestroySemaphore");
-        getDeviceProcAddr(device.handle(), "vkWaitForFences");
-        getDeviceProcAddr(device.handle(), "vkResetFences");
-        getDeviceProcAddr(device.handle(), "vkGetBufferDeviceAddress");
-        getDeviceProcAddr(device.handle(), "vkAcquireNextImageKHR");
-        getDeviceProcAddr(device.handle(), "vkDestroyDevice");
-
-        getDeviceProcAddr(device.handle(), "vkCreateBuffer");
-        getDeviceProcAddr(device.handle(), "vkDestroyBuffer");
-        getDeviceProcAddr(device.handle(), "vkGetBufferMemoryRequirements");
-        getDeviceProcAddr(device.handle(), "vkBindBufferMemory");
-
-        getDeviceProcAddr(device.handle(), "vkCreateImage");
-        getDeviceProcAddr(device.handle(), "vkDestroyImage");
-        getDeviceProcAddr(device.handle(), "vkGetImageMemoryRequirements");
-        getDeviceProcAddr(device.handle(), "vkBindImageMemory");
-
-        getDeviceProcAddr(device.handle(), "vkAllocateMemory");
-        getDeviceProcAddr(device.handle(), "vkFreeMemory");
-        getDeviceProcAddr(device.handle(), "vkMapMemory");
-        getDeviceProcAddr(device.handle(), "vkUnmapMemory");
-
-        getDeviceProcAddr(device.handle(), "vkBeginCommandBuffer");
-        getDeviceProcAddr(device.handle(), "vkResetCommandBuffer");
-        getDeviceProcAddr(device.handle(), "vkCmdPipelineBarrier2KHR");
-        getDeviceProcAddr(device.handle(), "vkCmdClearColorImage");
-        getDeviceProcAddr(device.handle(), "vkEndCommandBuffer");
-        getDeviceProcAddr(device.handle(), "vkCmdCopyBuffer");
-        getDeviceProcAddr(device.handle(), "vkCmdBlitImage2KHR");
-        getDeviceProcAddr(device.handle(), "vkCmdBindPipeline");
-        getDeviceProcAddr(device.handle(), "vkCmdBindIndexBuffer");
-        getDeviceProcAddr(device.handle(), "vkCmdBindDescriptorSets");
-        getDeviceProcAddr(device.handle(), "vkCmdSetViewport");
-        getDeviceProcAddr(device.handle(), "vkCmdSetScissor");
-        getDeviceProcAddr(device.handle(), "vkCmdDispatch");
-        getDeviceProcAddr(device.handle(), "vkCmdBeginRenderingKHR");
-        getDeviceProcAddr(device.handle(), "vkCmdDraw");
-        getDeviceProcAddr(device.handle(), "vkCmdDrawIndexed");
-        getDeviceProcAddr(device.handle(), "vkCmdEndRenderingKHR");
-        getDeviceProcAddr(device.handle(), "vkCmdPushConstants");
-
+        loadDeviceFunctions(device.handle());
         return device;
     }
 };
-
-var vkGetDeviceQueue: PFN(c.PFN_vkGetDeviceQueue) = undefined;
-var vkCreateSwapchainKHR: PFN(c.PFN_vkCreateSwapchainKHR) = undefined;
-var vkDestroySwapchainKHR: PFN(c.PFN_vkDestroySwapchainKHR) = undefined;
-var vkCreateShaderModule: PFN(c.PFN_vkCreateShaderModule) = undefined;
-var vkCreatePipelineLayout: PFN(c.PFN_vkCreatePipelineLayout) = undefined;
-var vkDestroyShaderModule: PFN(c.PFN_vkDestroyShaderModule) = undefined;
-var vkDestroyPipelineLayout: PFN(c.PFN_vkDestroyPipelineLayout) = undefined;
-
-var vkCreateComputePipelines: PFN(c.PFN_vkCreateComputePipelines) = undefined;
-var vkCreateGraphicsPipelines: PFN(c.PFN_vkCreateGraphicsPipelines) = undefined;
-var vkDestroyPipeline: PFN(c.PFN_vkDestroyPipeline) = undefined;
-var vkCreateImageView: PFN(c.PFN_vkCreateImageView) = undefined;
-var vkDestroyImageView: PFN(c.PFN_vkDestroyImageView) = undefined;
-var vkGetSwapchainImagesKHR: PFN(c.PFN_vkGetSwapchainImagesKHR) = undefined;
-var vkCreateDescriptorPool: PFN(c.PFN_vkCreateDescriptorPool) = undefined;
-var vkResetDescriptorPool: PFN(c.PFN_vkResetDescriptorPool) = undefined;
-var vkDestroyDescriptorPool: PFN(c.PFN_vkDestroyDescriptorPool) = undefined;
-var vkAllocateDescriptorSets: PFN(c.PFN_vkAllocateDescriptorSets) = undefined;
-var vkCreateCommandPool: PFN(c.PFN_vkCreateCommandPool) = undefined;
-var vkAllocateCommandBuffers: PFN(c.PFN_vkAllocateCommandBuffers) = undefined;
-var vkCreateDescriptorSetLayout: PFN(c.PFN_vkCreateDescriptorSetLayout) = undefined;
-var vkDestroyDescriptorSetLayout: PFN(c.PFN_vkDestroyDescriptorSetLayout) = undefined;
-var vkUpdateDescriptorSets: PFN(c.PFN_vkUpdateDescriptorSets) = undefined;
-var vkDeviceWaitIdle: PFN(c.PFN_vkDeviceWaitIdle) = undefined;
-var vkDestroyCommandPool: PFN(c.PFN_vkDestroyCommandPool) = undefined;
-var vkCreateFence: PFN(c.PFN_vkCreateFence) = undefined;
-var vkDestroyFence: PFN(c.PFN_vkDestroyFence) = undefined;
-var vkCreateSemaphore: PFN(c.PFN_vkCreateSemaphore) = undefined;
-var vkDestroySemaphore: PFN(c.PFN_vkDestroySemaphore) = undefined;
-var vkWaitForFences: PFN(c.PFN_vkWaitForFences) = undefined;
-var vkResetFences: PFN(c.PFN_vkResetFences) = undefined;
-var vkGetBufferDeviceAddress: PFN(c.PFN_vkGetBufferDeviceAddress) = undefined;
-var vkAcquireNextImageKHR: PFN(c.PFN_vkAcquireNextImageKHR) = undefined;
-var vkDestroyDevice: PFN(c.PFN_vkDestroyDevice) = undefined;
-
-var vkCreateBuffer: PFN(c.PFN_vkCreateBuffer) = undefined;
-var vkDestroyBuffer: PFN(c.PFN_vkDestroyBuffer) = undefined;
-var vkGetBufferMemoryRequirements: PFN(c.PFN_vkGetBufferMemoryRequirements) = undefined;
-var vkBindBufferMemory: PFN(c.PFN_vkBindBufferMemory) = undefined;
-
-var vkCreateImage: PFN(c.PFN_vkCreateImage) = undefined;
-var vkDestroyImage: PFN(c.PFN_vkDestroyImage) = undefined;
-var vkGetImageMemoryRequirements: PFN(c.PFN_vkGetImageMemoryRequirements) = undefined;
-var vkBindImageMemory: PFN(c.PFN_vkBindImageMemory) = undefined;
-
-var vkAllocateMemory: PFN(c.PFN_vkAllocateMemory) = undefined;
-var vkFreeMemory: PFN(c.PFN_vkFreeMemory) = undefined;
-var vkMapMemory: PFN(c.PFN_vkMapMemory) = undefined;
-var vkUnmapMemory: PFN(c.PFN_vkUnmapMemory) = undefined;
-
-var vkBeginCommandBuffer: PFN(c.PFN_vkBeginCommandBuffer) = undefined;
-var vkResetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
-var vkCmdPipelineBarrier2KHR: PFN(c.PFN_vkCmdPipelineBarrier2KHR) = undefined;
-var vkCmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
-var vkEndCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
-var vkCmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
-var vkCmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
-var vkCmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
-var vkCmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
-var vkCmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
-var vkCmdSetViewport: PFN(c.PFN_vkCmdSetViewport) = undefined;
-var vkCmdSetScissor: PFN(c.PFN_vkCmdSetScissor) = undefined;
-var vkCmdDispatch: PFN(c.PFN_vkCmdDispatch) = undefined;
-var vkCmdBeginRenderingKHR: PFN(c.PFN_vkCmdBeginRenderingKHR) = undefined;
-var vkCmdDraw: PFN(c.PFN_vkCmdDraw) = undefined;
-var vkCmdDrawIndexed: PFN(c.PFN_vkCmdDrawIndexed) = undefined;
-var vkCmdEndRenderingKHR: PFN(c.PFN_vkCmdEndRenderingKHR) = undefined;
-var vkCmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
 
 pub const Device = *align(@alignOf(c.VkDevice)) opaque {
     pub inline fn handle(self: Device) c.VkDevice {
@@ -1319,7 +1103,6 @@ pub const CommandBuffer = *align(@alignOf(c.VkCommandBuffer)) opaque {
         vkCmdBindIndexBuffer(self.handle(), buffer, offset, index_type);
     }
 
-    // c.vkCmdBindDescriptorSets
     pub inline fn bindDescriptorSets(
         self: CommandBuffer,
         bind_point: c.VkPipelineBindPoint,
@@ -1586,4 +1369,312 @@ pub inline fn result(r: c.VkResult) Result {
         c.VK_ERROR_INCOMPATIBLE_SHADER_BINARY_EXT => Error.IncompatibleShaderBinaryEXT,
         else => Error.Unknown,
     };
+}
+
+//[[[cog
+//  import cog
+//  global_defs = [
+//      'vkCreateInstance',
+//      'vkEnumerateInstanceExtensionProperties',
+//      'vkEnumerateInstanceLayerProperties',
+//      'vkEnumerateInstanceVersion'
+//  ]
+//  instance_defs = [
+//      'vkDestroyInstance',
+//      'vkDestroySurfaceKHR',
+//      'vkEnumeratePhysicalDevices',
+//      'vkEnumerateDeviceExtensionProperties',
+//      'vkGetPhysicalDeviceQueueFamilyProperties',
+//      'vkGetPhysicalDeviceSurfaceSupportKHR',
+//      'vkGetPhysicalDeviceProperties2',
+//      'vkGetPhysicalDeviceFeatures2',
+//      'vkGetPhysicalDeviceSurfaceCapabilitiesKHR',
+//      'vkGetPhysicalDeviceSurfaceFormatsKHR',
+//      'vkGetPhysicalDeviceSurfacePresentModesKHR',
+//      'vkGetPhysicalDeviceMemoryProperties',
+//      'vkCreateDevice',
+//      'vkGetDeviceProcAddr',
+//      'vkQueueSubmit',
+//      'vkQueueSubmit2KHR',
+//      'vkQueueWaitIdle',
+//      'vkQueueBindSparse',
+//      'vkQueuePresentKHR'
+//  ]
+//  debug_defs = [
+//      'vkCreateDebugUtilsMessengerEXT',
+//      'vkDestroyDebugUtilsMessengerEXT'
+//  ]
+//  device_defs = [
+//      'vkGetDeviceQueue',
+//      'vkCreateSwapchainKHR',
+//      'vkDestroySwapchainKHR',
+//      'vkCreateShaderModule',
+//      'vkCreatePipelineLayout',
+//      'vkDestroyShaderModule',
+//      'vkDestroyPipelineLayout',
+//      'vkCreateComputePipelines',
+//      'vkCreateGraphicsPipelines',
+//      'vkDestroyPipeline',
+//      'vkCreateImageView',
+//      'vkDestroyImageView',
+//      'vkGetSwapchainImagesKHR',
+//      'vkCreateDescriptorPool',
+//      'vkResetDescriptorPool',
+//      'vkDestroyDescriptorPool',
+//      'vkAllocateDescriptorSets',
+//      'vkCreateCommandPool',
+//      'vkAllocateCommandBuffers',
+//      'vkCreateDescriptorSetLayout',
+//      'vkDestroyDescriptorSetLayout',
+//      'vkUpdateDescriptorSets',
+//      'vkDeviceWaitIdle',
+//      'vkDestroyCommandPool',
+//      'vkCreateFence',
+//      'vkDestroyFence',
+//      'vkCreateSemaphore',
+//      'vkDestroySemaphore',
+//      'vkWaitForFences',
+//      'vkResetFences',
+//      'vkGetBufferDeviceAddress',
+//      'vkAcquireNextImageKHR',
+//      'vkDestroyDevice',
+//      'vkCreateBuffer',
+//      'vkDestroyBuffer',
+//      'vkGetBufferMemoryRequirements',
+//      'vkBindBufferMemory',
+//      'vkCreateImage',
+//      'vkDestroyImage',
+//      'vkGetImageMemoryRequirements',
+//      'vkBindImageMemory',
+//      'vkAllocateMemory',
+//      'vkFreeMemory',
+//      'vkMapMemory',
+//      'vkUnmapMemory',
+//      'vkBeginCommandBuffer',
+//      'vkResetCommandBuffer',
+//      'vkCmdPipelineBarrier2KHR',
+//      'vkCmdClearColorImage',
+//      'vkEndCommandBuffer',
+//      'vkCmdCopyBuffer',
+//      'vkCmdBlitImage2KHR',
+//      'vkCmdBindPipeline',
+//      'vkCmdBindIndexBuffer',
+//      'vkCmdBindDescriptorSets',
+//      'vkCmdSetViewport',
+//      'vkCmdSetScissor',
+//      'vkCmdDispatch',
+//      'vkCmdBeginRenderingKHR',
+//      'vkCmdDraw',
+//      'vkCmdDrawIndexed',
+//      'vkCmdEndRenderingKHR',
+//      'vkCmdPushConstants'
+//  ]
+//  all = global_defs + instance_defs + debug_defs + device_defs
+//]]]
+//[[[end]]]
+
+//[[[cog
+//   for item in all:
+//      cog.outl(f"var {item}: PFN(c.PFN_{item}) = undefined;")
+//]]]
+var vkCreateInstance: PFN(c.PFN_vkCreateInstance) = undefined;
+var vkEnumerateInstanceExtensionProperties: PFN(c.PFN_vkEnumerateInstanceExtensionProperties) = undefined;
+var vkEnumerateInstanceLayerProperties: PFN(c.PFN_vkEnumerateInstanceLayerProperties) = undefined;
+var vkEnumerateInstanceVersion: PFN(c.PFN_vkEnumerateInstanceVersion) = undefined;
+var vkDestroyInstance: PFN(c.PFN_vkDestroyInstance) = undefined;
+var vkDestroySurfaceKHR: PFN(c.PFN_vkDestroySurfaceKHR) = undefined;
+var vkEnumeratePhysicalDevices: PFN(c.PFN_vkEnumeratePhysicalDevices) = undefined;
+var vkEnumerateDeviceExtensionProperties: PFN(c.PFN_vkEnumerateDeviceExtensionProperties) = undefined;
+var vkGetPhysicalDeviceQueueFamilyProperties: PFN(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties) = undefined;
+var vkGetPhysicalDeviceSurfaceSupportKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR) = undefined;
+var vkGetPhysicalDeviceProperties2: PFN(c.PFN_vkGetPhysicalDeviceProperties2) = undefined;
+var vkGetPhysicalDeviceFeatures2: PFN(c.PFN_vkGetPhysicalDeviceFeatures2) = undefined;
+var vkGetPhysicalDeviceSurfaceCapabilitiesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) = undefined;
+var vkGetPhysicalDeviceSurfaceFormatsKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) = undefined;
+var vkGetPhysicalDeviceSurfacePresentModesKHR: PFN(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) = undefined;
+var vkGetPhysicalDeviceMemoryProperties: PFN(c.PFN_vkGetPhysicalDeviceMemoryProperties) = undefined;
+var vkCreateDevice: PFN(c.PFN_vkCreateDevice) = undefined;
+var vkGetDeviceProcAddr: PFN(c.PFN_vkGetDeviceProcAddr) = undefined;
+var vkQueueSubmit: PFN(c.PFN_vkQueueSubmit) = undefined;
+var vkQueueSubmit2KHR: PFN(c.PFN_vkQueueSubmit2KHR) = undefined;
+var vkQueueWaitIdle: PFN(c.PFN_vkQueueWaitIdle) = undefined;
+var vkQueueBindSparse: PFN(c.PFN_vkQueueBindSparse) = undefined;
+var vkQueuePresentKHR: PFN(c.PFN_vkQueuePresentKHR) = undefined;
+var vkCreateDebugUtilsMessengerEXT: PFN(c.PFN_vkCreateDebugUtilsMessengerEXT) = undefined;
+var vkDestroyDebugUtilsMessengerEXT: PFN(c.PFN_vkDestroyDebugUtilsMessengerEXT) = undefined;
+var vkGetDeviceQueue: PFN(c.PFN_vkGetDeviceQueue) = undefined;
+var vkCreateSwapchainKHR: PFN(c.PFN_vkCreateSwapchainKHR) = undefined;
+var vkDestroySwapchainKHR: PFN(c.PFN_vkDestroySwapchainKHR) = undefined;
+var vkCreateShaderModule: PFN(c.PFN_vkCreateShaderModule) = undefined;
+var vkCreatePipelineLayout: PFN(c.PFN_vkCreatePipelineLayout) = undefined;
+var vkDestroyShaderModule: PFN(c.PFN_vkDestroyShaderModule) = undefined;
+var vkDestroyPipelineLayout: PFN(c.PFN_vkDestroyPipelineLayout) = undefined;
+var vkCreateComputePipelines: PFN(c.PFN_vkCreateComputePipelines) = undefined;
+var vkCreateGraphicsPipelines: PFN(c.PFN_vkCreateGraphicsPipelines) = undefined;
+var vkDestroyPipeline: PFN(c.PFN_vkDestroyPipeline) = undefined;
+var vkCreateImageView: PFN(c.PFN_vkCreateImageView) = undefined;
+var vkDestroyImageView: PFN(c.PFN_vkDestroyImageView) = undefined;
+var vkGetSwapchainImagesKHR: PFN(c.PFN_vkGetSwapchainImagesKHR) = undefined;
+var vkCreateDescriptorPool: PFN(c.PFN_vkCreateDescriptorPool) = undefined;
+var vkResetDescriptorPool: PFN(c.PFN_vkResetDescriptorPool) = undefined;
+var vkDestroyDescriptorPool: PFN(c.PFN_vkDestroyDescriptorPool) = undefined;
+var vkAllocateDescriptorSets: PFN(c.PFN_vkAllocateDescriptorSets) = undefined;
+var vkCreateCommandPool: PFN(c.PFN_vkCreateCommandPool) = undefined;
+var vkAllocateCommandBuffers: PFN(c.PFN_vkAllocateCommandBuffers) = undefined;
+var vkCreateDescriptorSetLayout: PFN(c.PFN_vkCreateDescriptorSetLayout) = undefined;
+var vkDestroyDescriptorSetLayout: PFN(c.PFN_vkDestroyDescriptorSetLayout) = undefined;
+var vkUpdateDescriptorSets: PFN(c.PFN_vkUpdateDescriptorSets) = undefined;
+var vkDeviceWaitIdle: PFN(c.PFN_vkDeviceWaitIdle) = undefined;
+var vkDestroyCommandPool: PFN(c.PFN_vkDestroyCommandPool) = undefined;
+var vkCreateFence: PFN(c.PFN_vkCreateFence) = undefined;
+var vkDestroyFence: PFN(c.PFN_vkDestroyFence) = undefined;
+var vkCreateSemaphore: PFN(c.PFN_vkCreateSemaphore) = undefined;
+var vkDestroySemaphore: PFN(c.PFN_vkDestroySemaphore) = undefined;
+var vkWaitForFences: PFN(c.PFN_vkWaitForFences) = undefined;
+var vkResetFences: PFN(c.PFN_vkResetFences) = undefined;
+var vkGetBufferDeviceAddress: PFN(c.PFN_vkGetBufferDeviceAddress) = undefined;
+var vkAcquireNextImageKHR: PFN(c.PFN_vkAcquireNextImageKHR) = undefined;
+var vkDestroyDevice: PFN(c.PFN_vkDestroyDevice) = undefined;
+var vkCreateBuffer: PFN(c.PFN_vkCreateBuffer) = undefined;
+var vkDestroyBuffer: PFN(c.PFN_vkDestroyBuffer) = undefined;
+var vkGetBufferMemoryRequirements: PFN(c.PFN_vkGetBufferMemoryRequirements) = undefined;
+var vkBindBufferMemory: PFN(c.PFN_vkBindBufferMemory) = undefined;
+var vkCreateImage: PFN(c.PFN_vkCreateImage) = undefined;
+var vkDestroyImage: PFN(c.PFN_vkDestroyImage) = undefined;
+var vkGetImageMemoryRequirements: PFN(c.PFN_vkGetImageMemoryRequirements) = undefined;
+var vkBindImageMemory: PFN(c.PFN_vkBindImageMemory) = undefined;
+var vkAllocateMemory: PFN(c.PFN_vkAllocateMemory) = undefined;
+var vkFreeMemory: PFN(c.PFN_vkFreeMemory) = undefined;
+var vkMapMemory: PFN(c.PFN_vkMapMemory) = undefined;
+var vkUnmapMemory: PFN(c.PFN_vkUnmapMemory) = undefined;
+var vkBeginCommandBuffer: PFN(c.PFN_vkBeginCommandBuffer) = undefined;
+var vkResetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
+var vkCmdPipelineBarrier2KHR: PFN(c.PFN_vkCmdPipelineBarrier2KHR) = undefined;
+var vkCmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
+var vkEndCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
+var vkCmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
+var vkCmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
+var vkCmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
+var vkCmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
+var vkCmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
+var vkCmdSetViewport: PFN(c.PFN_vkCmdSetViewport) = undefined;
+var vkCmdSetScissor: PFN(c.PFN_vkCmdSetScissor) = undefined;
+var vkCmdDispatch: PFN(c.PFN_vkCmdDispatch) = undefined;
+var vkCmdBeginRenderingKHR: PFN(c.PFN_vkCmdBeginRenderingKHR) = undefined;
+var vkCmdDraw: PFN(c.PFN_vkCmdDraw) = undefined;
+var vkCmdDrawIndexed: PFN(c.PFN_vkCmdDrawIndexed) = undefined;
+var vkCmdEndRenderingKHR: PFN(c.PFN_vkCmdEndRenderingKHR) = undefined;
+var vkCmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
+//[[[end]]]
+
+fn loadGlobalFunctions() void {
+    //[[[cog
+    //   for item in global_defs:
+    //      cog.outl(f"getInstanceProcAddr(null, \"{item}\");")
+    //]]]
+    getInstanceProcAddr(null, "vkCreateInstance");
+    getInstanceProcAddr(null, "vkEnumerateInstanceExtensionProperties");
+    getInstanceProcAddr(null, "vkEnumerateInstanceLayerProperties");
+    getInstanceProcAddr(null, "vkEnumerateInstanceVersion");
+    //[[[end]]]
+}
+
+fn loadInstanceFunctions(instance: c.VkInstance) void {
+    //[[[cog
+    //   for item in instance_defs + debug_defs:
+    //      cog.outl(f"getInstanceProcAddr(instance, \"{item}\");")
+    //]]]
+    getInstanceProcAddr(instance, "vkDestroyInstance");
+    getInstanceProcAddr(instance, "vkDestroySurfaceKHR");
+    getInstanceProcAddr(instance, "vkEnumeratePhysicalDevices");
+    getInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+    getInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties");
+    getInstanceProcAddr(instance, "vkCreateDevice");
+    getInstanceProcAddr(instance, "vkGetDeviceProcAddr");
+    getInstanceProcAddr(instance, "vkQueueSubmit");
+    getInstanceProcAddr(instance, "vkQueueSubmit2KHR");
+    getInstanceProcAddr(instance, "vkQueueWaitIdle");
+    getInstanceProcAddr(instance, "vkQueueBindSparse");
+    getInstanceProcAddr(instance, "vkQueuePresentKHR");
+    getInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+    getInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+    //[[[end]]]
+}
+
+fn loadDeviceFunctions(device: c.VkDevice) void {
+    //[[[cog
+    //   for item in device_defs:
+    //      cog.outl(f"getDeviceProcAddr(device, \"{item}\");")
+    //]]]
+    getDeviceProcAddr(device, "vkGetDeviceQueue");
+    getDeviceProcAddr(device, "vkCreateSwapchainKHR");
+    getDeviceProcAddr(device, "vkDestroySwapchainKHR");
+    getDeviceProcAddr(device, "vkCreateShaderModule");
+    getDeviceProcAddr(device, "vkCreatePipelineLayout");
+    getDeviceProcAddr(device, "vkDestroyShaderModule");
+    getDeviceProcAddr(device, "vkDestroyPipelineLayout");
+    getDeviceProcAddr(device, "vkCreateComputePipelines");
+    getDeviceProcAddr(device, "vkCreateGraphicsPipelines");
+    getDeviceProcAddr(device, "vkDestroyPipeline");
+    getDeviceProcAddr(device, "vkCreateImageView");
+    getDeviceProcAddr(device, "vkDestroyImageView");
+    getDeviceProcAddr(device, "vkGetSwapchainImagesKHR");
+    getDeviceProcAddr(device, "vkCreateDescriptorPool");
+    getDeviceProcAddr(device, "vkResetDescriptorPool");
+    getDeviceProcAddr(device, "vkDestroyDescriptorPool");
+    getDeviceProcAddr(device, "vkAllocateDescriptorSets");
+    getDeviceProcAddr(device, "vkCreateCommandPool");
+    getDeviceProcAddr(device, "vkAllocateCommandBuffers");
+    getDeviceProcAddr(device, "vkCreateDescriptorSetLayout");
+    getDeviceProcAddr(device, "vkDestroyDescriptorSetLayout");
+    getDeviceProcAddr(device, "vkUpdateDescriptorSets");
+    getDeviceProcAddr(device, "vkDeviceWaitIdle");
+    getDeviceProcAddr(device, "vkDestroyCommandPool");
+    getDeviceProcAddr(device, "vkCreateFence");
+    getDeviceProcAddr(device, "vkDestroyFence");
+    getDeviceProcAddr(device, "vkCreateSemaphore");
+    getDeviceProcAddr(device, "vkDestroySemaphore");
+    getDeviceProcAddr(device, "vkWaitForFences");
+    getDeviceProcAddr(device, "vkResetFences");
+    getDeviceProcAddr(device, "vkGetBufferDeviceAddress");
+    getDeviceProcAddr(device, "vkAcquireNextImageKHR");
+    getDeviceProcAddr(device, "vkDestroyDevice");
+    getDeviceProcAddr(device, "vkCreateBuffer");
+    getDeviceProcAddr(device, "vkDestroyBuffer");
+    getDeviceProcAddr(device, "vkGetBufferMemoryRequirements");
+    getDeviceProcAddr(device, "vkBindBufferMemory");
+    getDeviceProcAddr(device, "vkCreateImage");
+    getDeviceProcAddr(device, "vkDestroyImage");
+    getDeviceProcAddr(device, "vkGetImageMemoryRequirements");
+    getDeviceProcAddr(device, "vkBindImageMemory");
+    getDeviceProcAddr(device, "vkAllocateMemory");
+    getDeviceProcAddr(device, "vkFreeMemory");
+    getDeviceProcAddr(device, "vkMapMemory");
+    getDeviceProcAddr(device, "vkUnmapMemory");
+    getDeviceProcAddr(device, "vkBeginCommandBuffer");
+    getDeviceProcAddr(device, "vkResetCommandBuffer");
+    getDeviceProcAddr(device, "vkCmdPipelineBarrier2KHR");
+    getDeviceProcAddr(device, "vkCmdClearColorImage");
+    getDeviceProcAddr(device, "vkEndCommandBuffer");
+    getDeviceProcAddr(device, "vkCmdCopyBuffer");
+    getDeviceProcAddr(device, "vkCmdBlitImage2KHR");
+    getDeviceProcAddr(device, "vkCmdBindPipeline");
+    getDeviceProcAddr(device, "vkCmdBindIndexBuffer");
+    getDeviceProcAddr(device, "vkCmdBindDescriptorSets");
+    getDeviceProcAddr(device, "vkCmdSetViewport");
+    getDeviceProcAddr(device, "vkCmdSetScissor");
+    getDeviceProcAddr(device, "vkCmdDispatch");
+    getDeviceProcAddr(device, "vkCmdBeginRenderingKHR");
+    getDeviceProcAddr(device, "vkCmdDraw");
+    getDeviceProcAddr(device, "vkCmdDrawIndexed");
+    getDeviceProcAddr(device, "vkCmdEndRenderingKHR");
+    getDeviceProcAddr(device, "vkCmdPushConstants");
+    //[[[end]]]
 }

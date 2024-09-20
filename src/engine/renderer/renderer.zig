@@ -1,5 +1,2 @@
-const config = @import("config");
+pub const Renderer = @import("vulkan/VulkanRenderer.zig");
 
-pub const Renderer = switch (config.graphics_api) {
-    .vulkan => @import("vulkan/VulkanRenderer.zig"),
-};

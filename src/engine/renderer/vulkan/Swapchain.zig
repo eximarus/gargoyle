@@ -1,6 +1,6 @@
 const std = @import("std");
+const c = @import("c");
 const vk = @import("vulkan.zig");
-const c = vk.c;
 const common = @import("common.zig");
 const CString = common.CString;
 

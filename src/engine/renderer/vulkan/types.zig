@@ -1,6 +1,6 @@
 const std = @import("std");
+const c = @import("c");
 const vk = @import("vulkan.zig");
-const c = vk.c;
 const math = @import("../../math/math.zig");
 
 pub const Image = extern struct {
@@ -13,7 +13,7 @@ pub const Image = extern struct {
 
 pub const Buffer = extern struct {
     buffer: vk.Buffer,
-    memory: vk.c.VkDeviceMemory,
+    memory: c.VkDeviceMemory,
     size: usize,
 };
 
@@ -22,7 +22,7 @@ pub const Vertex = extern struct {
     uv_x: f32 = 0,
     normal: math.Vec3 = std.mem.zeroes(math.Vec3),
     uv_y: f32 = 0,
-    color: math.Color4,
+    color: math.Color4 = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
 };
 
 pub const Mesh = struct {

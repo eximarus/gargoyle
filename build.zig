@@ -1,82 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const GraphicsApi = enum {
-    vulkan,
-    // vulkan_sc
-    // opengl,
-    // opengl_es,
-    //
-    // d3d12,
-    // d3d11,
-    //
-    // metal,
-    //
-    // wgpu,
-    // webgl,
-    //
-    // gnm
-};
-
 pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    _ = b;
+    // const optimize = b.standardOptimizeOption(.{});
 
-    const gargoyle_mod = b.addModule("gargoyle", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/engine/root.zig"),
-        .link_libc = true,
-    });
-
-    var vulkan_dep = b.dependency("vulkan", .{});
-    gargoyle_mod.addIncludePath(vulkan_dep.path("include"));
-
-    const conf = b.addOptions();
-    conf.addOption(
-        GraphicsApi,
-        "graphics_api",
-        .vulkan,
-    );
-    gargoyle_mod.addOptions("config", conf);
-    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/colored_triangle.vert"));
-    addGlslShader(b, gargoyle_mod, b.path("shaders/glsl/colored_triangle.frag"));
-
-    const app_lib = b.addSharedLibrary(.{
-        .name = "sandbox",
-        .root_source_file = b.path("src/app/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    app_lib.root_module.addImport("gargoyle", gargoyle_mod);
-    app_lib.root_module.addAnonymousImport("app_root", .{
-        .root_source_file = b.path("sandbox/src/root.zig"),
-        .imports = &.{
-            .{
-                .name = "gargoyle",
-                .module = gargoyle_mod,
-            },
-        },
-    });
-    app_lib.linkLibC();
-
-    b.installArtifact(app_lib);
-
-    const exe = b.addExecutable(.{
-        .name = "ggeSandbox",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe.root_module.addImport("gargoyle", gargoyle_mod);
-
-    const app_conf = b.addOptions();
-    app_conf.addOption([]const u8, "app_lib_file", app_lib.out_filename);
-    exe.root_module.addOptions("config", app_conf);
-
-    b.installArtifact(exe);
+    // const exe = buildWin32(b, .{
+    //     .optimize = optimize,
+    // });
 
     // const exe_unit_tests = b.addTest(.{
     //     .name = "test",
@@ -97,11 +28,86 @@ pub fn build(b: *std.Build) !void {
     // const mac_step = b.step("mac", "Create a macos app");
 }
 
+pub const Win32Options = struct {
+    name: []const u8,
+    app_mod: *std.Build.Module,
+    optimize: std.builtin.OptimizeMode = .Debug,
+};
+
+pub fn buildWin32(
+    parent: *std.Build,
+    gargoyle_dep: *std.Build.Dependency,
+    options: Win32Options,
+) !void {
+    var b = gargoyle_dep.builder;
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+    });
+
+    const c_mod = b.addModule("c", .{
+        .optimize = options.optimize,
+        .target = target,
+        .root_source_file = b.path("src/c.zig"),
+        .link_libc = true,
+    });
+    c_mod.addCMacro("VK_USE_PLATFORM_WIN32_KHR", "");
+
+    var vulkan_dep = b.dependency("vulkan", .{});
+    c_mod.addIncludePath(vulkan_dep.path("include"));
+
+    const gargoyle_mod = b.addModule("gargoyle", .{
+        .optimize = options.optimize,
+        .target = target,
+        .root_source_file = b.path("src/engine/module.zig"),
+    });
+    gargoyle_mod.addImport("c", c_mod);
+
+    addGlslShader(gargoyle_mod, b.path("shaders/glsl/colored_triangle.vert"));
+    addGlslShader(gargoyle_mod, b.path("shaders/glsl/colored_triangle.frag"));
+
+    gargoyle_mod.addAnonymousImport("platform", .{
+        .target = target,
+        .optimize = options.optimize,
+        .root_source_file = b.path("src/platform/win32/root.zig"),
+        .imports = &.{.{ .name = "c", .module = c_mod }},
+    });
+
+    options.app_mod.addImport("gargoyle", gargoyle_mod);
+
+    const lib = b.addSharedLibrary(.{
+        .name = "gargoyle",
+        .target = target,
+        .optimize = options.optimize,
+        .root_source_file = b.path("src/engine/root.zig"),
+    });
+    lib.root_module.addImport("gargoyle", gargoyle_mod);
+    lib.root_module.addImport("app", options.app_mod);
+
+    const exe = b.addExecutable(.{
+        .name = options.name,
+        .root_source_file = b.path("src/platform/win32/main.zig"),
+        .target = target,
+        .optimize = options.optimize,
+    });
+    exe.root_module.addImport("c", c_mod);
+
+    const install_options = std.Build.Step.InstallArtifact.Options{
+        .dest_dir = .{ .override = .{ .custom = "win32" } },
+    };
+
+    const lib_output = parent.addInstallArtifact(lib, install_options);
+    parent.getInstallStep().dependOn(&lib_output.step);
+
+    const exe_output = parent.addInstallArtifact(exe, install_options);
+    parent.getInstallStep().dependOn(&exe_output.step);
+}
+
 pub fn addGlslShader(
-    b: *std.Build,
     obj: *std.Build.Module,
     file: std.Build.LazyPath,
 ) void {
+    var b = obj.owner;
     const cmd = b.addSystemCommand(&.{ "glslangValidator", "-V", "-o" });
     const out_file = cmd.addOutputFileArg(
         b.fmt("{s}.spv", .{file.getDisplayName()}),
@@ -116,3 +122,15 @@ pub fn addGlslShader(
         .root_source_file = out_file,
     });
 }
+
+// fn getVkPlatformDefine() []const u8 {
+//     return if (builtin.abi == .android)
+//         "VK_USE_PLATFORM_ANDROID_KHR"
+//     else switch (builtin.os.tag) {
+//         .ios => "VK_USE_PLATFORM_IOS_MVK",
+//         .macos => "VK_USE_PLATFORM_MACOS_MVK",
+//         .windows => "VK_USE_PLATFORM_WIN32_KHR",
+//         .linux => "VK_USE_PLATFORM_WAYLAND_KHR",
+//         else => @compileError("platform not supported."),
+//     };
+// }
