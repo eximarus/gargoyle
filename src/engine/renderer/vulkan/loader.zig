@@ -29,26 +29,33 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
             const idx_data_len = idx_buffer_view.byteLength;
             const idx_data = bin[idx_data_offset..(idx_data_offset + idx_data_len)];
 
-            const component_size = idx_acc.componentType.size();
             try indices.ensureUnusedCapacity(idx_count);
             const idx_slice = indices.unusedCapacitySlice()[0..idx_count];
-
-            var k: usize = 0;
-            for (0..idx_count) |j| {
-                idx_slice[j] = std.mem.bytesToValue(u32, idx_data[k..(k + component_size)]);
-                k += component_size;
+            if (idx_acc.componentType == .unsigned_int) {
+                @memcpy(std.mem.asBytes(idx_slice), idx_data);
+            } else {
+                const component_size = idx_acc.componentType.size();
+                var k: usize = 0;
+                for (0..idx_count) |j| {
+                    idx_slice[j] = switch (idx_acc.componentType) {
+                        .unsigned_byte => @intCast(@as(*const u8, @ptrCast(@alignCast(&idx_data[k]))).*),
+                        .unsigned_short => @intCast(@as(*const u16, @ptrCast(@alignCast(&idx_data[k]))).*),
+                        .short, .byte, .float => return error.InvalidGltf,
+                        .unsigned_int => unreachable,
+                    };
+                    k += component_size;
+                }
             }
             indices.items.len += idx_count;
 
             const pos_acc = accessors[p.findAttribute("POSITION") orelse return error.InvalidGltf];
-            const vtx_count = pos_acc.count;
-
-            try vertices.ensureUnusedCapacity(vtx_count);
-            const vtx_slice = vertices.unusedCapacitySlice()[0..vtx_count];
-
             const normal_acc = if (p.findAttribute("NORMAL")) |attr| accessors[attr] else null;
             const texcoord_acc = if (p.findAttribute("TEXCOORD_0")) |attr| accessors[attr] else null;
             const color_acc = if (p.findAttribute("COLOR_0")) |attr| accessors[attr] else null;
+
+            const vtx_count = pos_acc.count;
+            try vertices.ensureUnusedCapacity(vtx_count);
+            const vtx_slice = vertices.unusedCapacitySlice()[0..vtx_count];
 
             for (vtx_slice, 0..) |*vertex, i| {
                 const stride = @sizeOf(@TypeOf(vertex.position));
@@ -84,35 +91,23 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
                     vertex.color = math.color4(1.0, 1.0, 1.0, 1.0);
                 }
 
+                // flip z for LH
                 vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
                 vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
             }
             vertices.items.len += vtx_count;
         }
 
-        // flip indices for left handed system
+        // flip indices for LH
         var i: usize = 0;
         while (i < indices.items.len) : (i += 3) {
             std.mem.swap(u32, &indices.items[i], &indices.items[i + 2]);
         }
 
-        // display the vertex normals
-        const override_colors = true;
-        if (override_colors) {
-            for (vertices.items) |*vtx| {
-                vtx.color = math.color4(vtx.normal.x, vtx.normal.y, vtx.normal.z, 1.0);
-            }
+        // display the vertex normals... for now
+        for (vertices.items) |*vtx| {
+            vtx.color = math.color4(vtx.normal.x, vtx.normal.y, vtx.normal.z, 1.0);
         }
-
-        // const json = try std.json.stringifyAlloc(
-        //     renderer.arena,
-        //     .{
-        //         .indices = indices.items,
-        //         .vertices = vertices.items,
-        //     },
-        //     .{ .whitespace = .indent_4 },
-        // );
-        // std.debug.print("{s}\n", .{json});
 
         mesh.* = try renderer.uploadMesh(indices.items, vertices.items);
     }

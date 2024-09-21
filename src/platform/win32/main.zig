@@ -3,27 +3,10 @@ const c = @import("c");
 const Window = @import("root.zig").Window;
 const WINAPI = std.os.windows.WINAPI;
 
-const Engine = opaque {};
-var createEngine: *const fn (Window) callconv(.C) *Engine = undefined;
-var updateEngine: *const fn (*Engine) callconv(.C) u32 = undefined;
-var shutdownEngine: *const fn (*Engine) callconv(.C) void = undefined;
-
-// pub fn logFn(
-//     comptime message_level: std.log.Level,
-//     comptime scope: @Type(.EnumLiteral),
-//     comptime format: []const u8,
-//     args: anytype,
-// ) void {
-//     const level_txt = comptime message_level.asText();
-//     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-//     var buf: [4096]u8 = undefined;
-//     const msg = std.fmt.bufPrintZ(&buf, level_txt ++ prefix2 ++ format ++ "\n", args) catch "";
-//     c.OutputDebugStringA(msg);
-// }
-//
-// pub const std_options: std.Options = .{
-//     .logFn = logFn,
-// };
+const GGInstance = opaque {};
+var ggCreate: *const fn (Window) callconv(.C) *GGInstance = undefined;
+var ggUpdate: *const fn (*GGInstance) callconv(.C) u32 = undefined;
+var ggShutdown: *const fn (*GGInstance) callconv(.C) void = undefined;
 
 pub export fn WindowProc(hwnd: c.HWND, uMsg: c_uint, wParam: c.WPARAM, lParam: c.LPARAM) callconv(WINAPI) c.LRESULT {
     _ = switch (uMsg) {
@@ -78,7 +61,7 @@ pub export fn wWinMain(
         0, // dwExStyle
         class_atom, // lpClassName
         null, // lpWindowName
-        c.WS_POPUP | c.WS_VISIBLE, // dwStyle
+        c.WS_POPUP | c.WS_CLIPSIBLINGS | c.WS_CLIPCHILDREN, // dwStyle
         0, // X
         0, // Y
         screen_width, // nWidth
@@ -94,15 +77,15 @@ pub export fn wWinMain(
         std.log.err("failed to load gargoyle.dll. err: {}\n", .{err});
         return 1;
     };
-    createEngine = dyn_lib.lookup(@TypeOf(createEngine), "ggeCreate") orelse {
+    ggCreate = dyn_lib.lookup(@TypeOf(ggCreate), "ggCreate") orelse {
         std.log.err("failed to load createEngine function. \n", .{});
         return 1;
     };
-    updateEngine = dyn_lib.lookup(@TypeOf(updateEngine), "ggeUpdate") orelse {
+    ggUpdate = dyn_lib.lookup(@TypeOf(ggUpdate), "ggUpdate") orelse {
         std.log.err("failed to load updateEngine function. \n", .{});
         return 1;
     };
-    shutdownEngine = dyn_lib.lookup(@TypeOf(shutdownEngine), "ggeShutdown") orelse {
+    ggShutdown = dyn_lib.lookup(@TypeOf(ggShutdown), "ggShutdown") orelse {
         std.log.err("failed to load shutdownEngine function. \n", .{});
         return 1;
     };
@@ -113,14 +96,21 @@ pub export fn wWinMain(
         .width = @intCast(screen_width),
         .height = @intCast(screen_height),
     };
-    const engine = createEngine(window);
-    defer shutdownEngine(engine);
+    const gg = ggCreate(window);
+    defer ggShutdown(gg);
 
     var msg: c.MSG = std.mem.zeroes(c.MSG);
-    while (c.GetMessageA(&msg, null, 0, 0) > 0) {
-        _ = c.TranslateMessage(&msg);
-        _ = c.DispatchMessageA(&msg);
-        const r = updateEngine(engine);
+
+    while (true) {
+        while (c.PeekMessageA(&msg, null, 0, 0, c.PM_NOREMOVE) == c.TRUE) {
+            if (c.GetMessageA(&msg, null, 0, 0) > 0) {
+                _ = c.TranslateMessage(&msg);
+                _ = c.DispatchMessageA(&msg);
+            } else {
+                return 1;
+            }
+        }
+        const r = ggUpdate(gg);
         switch (r) {
             0 => {},
             1 => return 0,

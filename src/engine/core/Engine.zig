@@ -17,12 +17,14 @@ fixed_delta: u64 = 0,
 minimized: bool = false,
 quit: bool = false,
 
-pub inline fn init(
+pub fn create(
     gpa: std.mem.Allocator,
     window: Window,
     cfg: *const AppConfig,
-) !Engine {
-    var self: Engine = undefined;
+) !*Engine {
+    var self = try gpa.create(Engine);
+    errdefer gpa.destroy(self);
+
     self.fixed_delta = 0;
     self.minimized = false;
     self.quit = false;
@@ -35,7 +37,7 @@ pub inline fn init(
     return self;
 }
 
-pub inline fn update(self: *Engine, app: anytype) u32 {
+pub fn update(self: *Engine, app: anytype) u32 {
     const dt_ns = self.timer.lap();
     const dt = time.nanosToSeconds(dt_ns);
 
@@ -72,6 +74,6 @@ pub inline fn update(self: *Engine, app: anytype) u32 {
     return 0;
 }
 
-pub inline fn shutdown(self: *Engine) void {
+pub fn shutdown(self: *Engine) void {
     self.renderer.deinit();
 }

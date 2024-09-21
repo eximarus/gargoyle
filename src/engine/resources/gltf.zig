@@ -25,6 +25,7 @@ pub const Accessor = struct {
             };
         }
     };
+
     pub const Sparse = struct {
         pub const Indices = struct {
             bufferView: usize,
@@ -80,6 +81,7 @@ pub const Animation = struct {
         extensions: ?std.json.Value = null,
         extras: ?std.json.Value = null,
     };
+
     channels: []Channel,
     samplers: []Animation.Sampler,
     name: ?[]const u8 = null,
@@ -109,6 +111,7 @@ pub const BufferView = struct {
         array_buffer = 34962,
         element_array_buffer = 34963,
     };
+
     buffer: usize,
     byteOffset: usize = 0,
     byteLength: usize,
@@ -128,6 +131,7 @@ pub const Camera = struct {
         extensions: ?std.json.Value = null,
         extras: ?std.json.Value = null,
     };
+
     pub const Perspective = struct {
         aspectRatio: ?f32 = null,
         yfov: f32,
@@ -136,6 +140,7 @@ pub const Camera = struct {
         extensions: ?std.json.Value = null,
         extras: ?std.json.Value = null,
     };
+
     orthographic: ?Orthographic = null,
     perspective: ?Perspective = null,
     type: []const u8, // "perspective", "orthographic"
@@ -181,6 +186,7 @@ pub const Material = struct {
         extensions: ?std.json.Value = null,
         extras: ?std.json.Value = null,
     };
+
     pub const OcclusionTextureInfo = struct {
         index: usize,
         texCoord: u32 = 0,
@@ -188,6 +194,7 @@ pub const Material = struct {
         extensions: ?std.json.Value = null,
         extras: ?std.json.Value = null,
     };
+
     pub const PbrMetallicRoughness = struct {
         baseColorFactor: Vec4 = Vec4{ 1, 1, 1, 1 },
         baseColorTexture: ?TextureInfo = null,
@@ -222,6 +229,7 @@ pub const Mesh = struct {
             triangle_strip = 5,
             triangle_fan = 6,
         };
+
         attributes: std.json.Value,
         indices: ?usize = null,
         material: ?usize = null,
@@ -235,6 +243,7 @@ pub const Mesh = struct {
             return @intCast(item.integer);
         }
     };
+
     primitives: []Primitive,
     weights: ?[]f32 = null,
     name: ?[]const u8 = null,
@@ -262,6 +271,7 @@ pub const Sampler = struct {
         nearest = 9728,
         linear = 9729,
     };
+
     pub const MinFilter = enum(u32) {
         nearest = 9728,
         linear = 9729,
@@ -270,11 +280,13 @@ pub const Sampler = struct {
         nearest_mipmap_linear = 9986,
         linear_mipmap_linear = 9987,
     };
+
     pub const WrapMode = enum(u32) {
         clamp_to_edge = 33071,
         mirrored_repeat = 33648,
         repeat = 10497,
     };
+
     magFilter: ?MagFilter = null,
     minFilter: ?MinFilter = null,
     wrapS: WrapMode = .repeat,
@@ -315,10 +327,13 @@ pub const TextureInfo = struct {
     extras: ?std.json.Value = null,
 };
 
-const Glb = struct {
+pub const Glb = struct {
     gltf: Gltf,
     bin: ?[]const u8,
 };
+
+const endian = std.builtin.Endian.little;
+const glb_magic = 0x46546C67;
 
 const ChunkType = enum(u32) {
     bin = 0x004E4942,
@@ -329,10 +344,9 @@ pub fn load(path: []const u8, arena: std.mem.Allocator) !Glb {
     const f = try std.fs.cwd().openFile(path, .{});
     defer f.close();
 
-    const endian = std.builtin.Endian.little;
     var reader = f.reader();
     const magic = try reader.readInt(u32, endian);
-    if (magic == 0x46546C67) {
+    if (magic == glb_magic) {
         const version = try reader.readInt(u32, endian);
         if (version != 2) {
             return error.InvalidGltfVersion;
@@ -369,21 +383,27 @@ pub fn load(path: []const u8, arena: std.mem.Allocator) !Glb {
             .gltf = json,
             .bin = null,
         };
-    } else {
-        try f.seekTo(0);
-
-        const size = try f.getEndPos();
-        const bin = try reader.readAllAlloc(arena, size);
-        const json = try std.json.parseFromSliceLeaky(Gltf, arena, bin, .{});
-
-        return Glb{
-            .gltf = json,
-            .bin = null,
-        };
     }
+
+    try f.seekTo(0);
+
+    const size = try f.getEndPos();
+    const bin = try reader.readAllAlloc(arena, size);
+    const json = try std.json.parseFromSliceLeaky(Gltf, arena, bin, .{});
+
+    return Glb{
+        .gltf = json,
+        .bin = null,
+    };
 }
 
-pub inline fn readVertex(bin: []const u8, buffer_views: []BufferView, acc: Accessor, index: usize, stride: usize) []const u8 {
+pub inline fn readVertex(
+    bin: []const u8,
+    buffer_views: []BufferView,
+    acc: Accessor,
+    index: usize,
+    stride: usize,
+) []const u8 {
     const buffer_view = buffer_views[acc.bufferView.?];
     const vtx_data_offset = buffer_view.byteOffset + acc.byteOffset + stride * index;
     return bin[vtx_data_offset..(vtx_data_offset + stride)];

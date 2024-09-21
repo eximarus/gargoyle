@@ -8,7 +8,6 @@ const SystemInfo = @import("SystemInfo.zig");
 const Out = struct {
     vk.Instance,
     vk.DebugUtilsMessengerEXT,
-    ?*c.VkAllocationCallbacks,
 };
 
 pub fn create(
@@ -200,7 +199,6 @@ pub fn create(
     var self = Out{
         try vk.createInstance(&instance_create_info, info.allocation_callbacks),
         null,
-        info.allocation_callbacks,
     };
 
     if (info.use_debug_messenger) {
