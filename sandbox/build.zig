@@ -3,16 +3,21 @@ const gargoyle = @import("gargoyle");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
+
     const mod = b.addModule("app", .{
         .root_source_file = b.path("src/root.zig"),
         .optimize = optimize,
     });
 
-    const gargoyle_dep = b.dependency("gargoyle", .{});
-    try gargoyle.buildWin32(b, gargoyle_dep, .{
-        .name = "sandbox",
-        .optimize = optimize,
+    gargoyle.addAsset(b, .{
+        .name = "basicmesh.glb",
+        .file = b.path("basicmesh.glb"),
+    });
+
+    try gargoyle.buildWin32(b, .{
+        .app_name = "sandbox",
         .app_mod = mod,
+        .optimize = optimize,
     });
 
     const exe_unit_tests = b.addTest(.{

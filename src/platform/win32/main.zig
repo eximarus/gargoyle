@@ -78,15 +78,15 @@ pub export fn wWinMain(
         return 1;
     };
     ggCreate = dyn_lib.lookup(@TypeOf(ggCreate), "ggCreate") orelse {
-        std.log.err("failed to load createEngine function. \n", .{});
+        std.log.err("failed to load ggCreate function. \n", .{});
         return 1;
     };
     ggUpdate = dyn_lib.lookup(@TypeOf(ggUpdate), "ggUpdate") orelse {
-        std.log.err("failed to load updateEngine function. \n", .{});
+        std.log.err("failed to load ggUpdate function. \n", .{});
         return 1;
     };
     ggShutdown = dyn_lib.lookup(@TypeOf(ggShutdown), "ggShutdown") orelse {
-        std.log.err("failed to load shutdownEngine function. \n", .{});
+        std.log.err("failed to load ggShutdown function. \n", .{});
         return 1;
     };
 

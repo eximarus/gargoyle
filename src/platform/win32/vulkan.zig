@@ -1,3 +1,4 @@
+const std = @import("std");
 const c = @import("c");
 const Window = @import("window.zig").Window;
 
@@ -14,10 +15,11 @@ var vkCreateWin32SurfaceKHR: PFN(c.PFN_vkCreateWin32SurfaceKHR) = undefined;
 pub fn init(
     vkGetInstanceProcAddr: PFN(c.PFN_vkGetInstanceProcAddr),
     instance: c.VkInstance,
-) !void {
+) void {
     vkCreateWin32SurfaceKHR =
-        @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR") orelse
-        return error.InitializationFailed);
+        @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR") orelse {
+        std.debug.panic("vkCreateWin32SurfaceKHR not found", .{});
+    });
 }
 
 pub fn createSurface(
@@ -33,7 +35,7 @@ pub fn createSurface(
             .hwnd = window.hwnd,
         },
         null,
-        @ptrCast(&surface),
+        &surface,
     );
     return .{ result, surface };
 }

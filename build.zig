@@ -2,12 +2,62 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) !void {
-    _ = b;
-    // const optimize = b.standardOptimizeOption(.{});
+    const app_name = b.option([]const u8, "app_name", "the name of the app being built") orelse "gargoyle_app";
+    const app_ver = b.option([]const u8, "app_ver", "the version of the app being built") orelse "0.0.0";
 
-    // const exe = buildWin32(b, .{
-    //     .optimize = optimize,
-    // });
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+    });
+
+    const optimize = b.standardOptimizeOption(.{});
+    const vulkan_dep = b.dependency("vulkan", .{});
+
+    const c_mod = b.addModule("c", .{
+        .optimize = optimize,
+        .root_source_file = b.path("src/c.zig"),
+        .link_libc = true,
+    });
+    c_mod.addIncludePath(vulkan_dep.path("include"));
+
+    const platform_mod = b.addModule("platform", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/platform/win32/root.zig"),
+        .imports = &.{.{ .name = "c", .module = c_mod }},
+    });
+
+    const gargoyle_mod = b.addModule("gargoyle", .{
+        .optimize = optimize,
+        .root_source_file = b.path("src/core/root.zig"),
+        .imports = &.{
+            .{ .name = "c", .module = c_mod },
+            .{ .name = "platform", .module = platform_mod },
+        },
+    });
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "app_name", app_name);
+    options.addOption([]const u8, "app_ver", app_ver);
+    gargoyle_mod.addOptions("config", options);
+
+    const lib = b.addSharedLibrary(.{
+        .name = "gargoyle",
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/runtime/root.zig"),
+    });
+    lib.root_module.addImport("gargoyle", gargoyle_mod);
+    b.installArtifact(lib);
+
+    const exe = b.addExecutable(.{
+        .name = app_name,
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/platform/win32/main.zig"),
+    });
+    exe.root_module.addImport("c", c_mod);
+    b.installArtifact(exe);
 
     // const exe_unit_tests = b.addTest(.{
     //     .name = "test",
@@ -20,117 +70,96 @@ pub fn build(b: *std.Build) !void {
     // const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     // const test_step = b.step("test", "Run unit tests");
     // test_step.dependOn(&run_exe_unit_tests.step);
-
-    // const linux_step = b.step("linux", "Create an AppImage for linux");
-    // const android_step = b.step("android", "Create an Apk for Android");
-    // const windows_step = b.step("windows", "Create a Windows Installer File");
-    // const ios_step = b.step("ios", "Create a ios app");
-    // const mac_step = b.step("mac", "Create a macos app");
 }
 
-pub const Win32Options = struct {
+pub const ShaderOptions = struct {
     name: []const u8,
+    file: std.Build.LazyPath,
+};
+
+pub fn addShader(
+    b: *std.Build,
+    options: ShaderOptions,
+) void {
+    const cmd = b.addSystemCommand(&.{
+        "slangc",
+        "-profile",
+        "spirv_1_5",
+        "-target",
+        "spirv",
+        "-emit-spirv-directly",
+        "-force-glsl-scalar-layout",
+        "-matrix-layout-column-major",
+        "-fvk-use-entrypoint-name",
+        "-o",
+    });
+    const out_file = cmd.addOutputFileArg(
+        b.fmt("{s}.spv", .{options.name}),
+    );
+    cmd.addFileArg(options.file);
+
+    const f = b.addInstallFileWithDir(
+        out_file,
+        .{ .custom = "win32" },
+        b.fmt("assets/shaders/{s}.spv", .{options.name}),
+    );
+    b.getInstallStep().dependOn(&f.step);
+}
+
+pub const AssetOptions = struct {
+    name: []const u8,
+    file: std.Build.LazyPath,
+};
+
+pub fn addAsset(
+    b: *std.Build,
+    options: AssetOptions,
+) void {
+    const f = b.addInstallFileWithDir(
+        options.file,
+        .{ .custom = "win32" },
+        b.fmt("assets/{s}", .{options.name}),
+    );
+    b.getInstallStep().dependOn(&f.step);
+}
+
+pub const BuildOptions = struct {
+    app_name: []const u8,
     app_mod: *std.Build.Module,
     optimize: std.builtin.OptimizeMode = .Debug,
+    app_ver: ?std.SemanticVersion = null,
 };
 
 pub fn buildWin32(
-    parent: *std.Build,
-    gargoyle_dep: *std.Build.Dependency,
-    options: Win32Options,
+    b: *std.Build,
+    options: BuildOptions,
 ) !void {
-    var b = gargoyle_dep.builder;
-    const target = b.resolveTargetQuery(.{
-        .cpu_arch = .x86_64,
-        .os_tag = .windows,
-    });
+    const ver = if (options.app_ver) |v| std.fmt.allocPrint(b.allocator, "{}", .{v}) catch @panic("ah") else "0.0.0";
 
-    const c_mod = b.addModule("c", .{
+    const dep = b.dependencyFromBuildZig(@This(), .{
+        .app_name = options.app_name,
+        .app_ver = ver,
         .optimize = options.optimize,
-        .target = target,
-        .root_source_file = b.path("src/c.zig"),
-        .link_libc = true,
-    });
-    c_mod.addCMacro("VK_USE_PLATFORM_WIN32_KHR", "");
-
-    var vulkan_dep = b.dependency("vulkan", .{});
-    c_mod.addIncludePath(vulkan_dep.path("include"));
-
-    const gargoyle_mod = b.addModule("gargoyle", .{
-        .optimize = options.optimize,
-        .target = target,
-        .root_source_file = b.path("src/engine/module.zig"),
-    });
-    gargoyle_mod.addImport("c", c_mod);
-
-    addGlslShader(gargoyle_mod, b.path("shaders/glsl/colored_triangle.vert"));
-    addGlslShader(gargoyle_mod, b.path("shaders/glsl/colored_triangle.frag"));
-
-    gargoyle_mod.addAnonymousImport("platform", .{
-        .target = target,
-        .optimize = options.optimize,
-        .root_source_file = b.path("src/platform/win32/root.zig"),
-        .imports = &.{.{ .name = "c", .module = c_mod }},
     });
 
+    const gargoyle_mod = dep.module("gargoyle");
+    gargoyle_mod.addImport("app", options.app_mod);
     options.app_mod.addImport("gargoyle", gargoyle_mod);
-
-    const lib = b.addSharedLibrary(.{
-        .name = "gargoyle",
-        .target = target,
-        .optimize = options.optimize,
-        .root_source_file = b.path("src/engine/root.zig"),
-    });
-    lib.root_module.addImport("gargoyle", gargoyle_mod);
-    lib.root_module.addImport("app", options.app_mod);
-
-    const exe = b.addExecutable(.{
-        .name = options.name,
-        .root_source_file = b.path("src/platform/win32/main.zig"),
-        .target = target,
-        .optimize = options.optimize,
-    });
-    exe.root_module.addImport("c", c_mod);
 
     const install_options = std.Build.Step.InstallArtifact.Options{
         .dest_dir = .{ .override = .{ .custom = "win32" } },
     };
 
-    const lib_output = parent.addInstallArtifact(lib, install_options);
-    parent.getInstallStep().dependOn(&lib_output.step);
-
-    const exe_output = parent.addInstallArtifact(exe, install_options);
-    parent.getInstallStep().dependOn(&exe_output.step);
-}
-
-pub fn addGlslShader(
-    obj: *std.Build.Module,
-    file: std.Build.LazyPath,
-) void {
-    var b = obj.owner;
-    const cmd = b.addSystemCommand(&.{ "glslangValidator", "-V", "-o" });
-    const out_file = cmd.addOutputFileArg(
-        b.fmt("{s}.spv", .{file.getDisplayName()}),
-    );
-    cmd.addFileArg(file);
-
-    for (obj.depending_steps.keys()) |comp| {
-        comp.step.dependOn(&cmd.step);
-    }
-
-    obj.addAnonymousImport(file.getDisplayName(), .{
-        .root_source_file = out_file,
+    addShader(b, .{
+        .name = "default",
+        .file = dep.path("shaders/default.slang"),
     });
-}
 
-// fn getVkPlatformDefine() []const u8 {
-//     return if (builtin.abi == .android)
-//         "VK_USE_PLATFORM_ANDROID_KHR"
-//     else switch (builtin.os.tag) {
-//         .ios => "VK_USE_PLATFORM_IOS_MVK",
-//         .macos => "VK_USE_PLATFORM_MACOS_MVK",
-//         .windows => "VK_USE_PLATFORM_WIN32_KHR",
-//         .linux => "VK_USE_PLATFORM_WAYLAND_KHR",
-//         else => @compileError("platform not supported."),
-//     };
-// }
+    const lib = dep.artifact("gargoyle");
+    const lib_output = b.addInstallArtifact(lib, install_options);
+    b.getInstallStep().dependOn(&lib_output.step);
+
+    const exe = dep.artifact(options.app_name);
+    const exe_output = b.addInstallArtifact(exe, install_options);
+    b.getInstallStep().dependOn(&exe_output.step);
+}
