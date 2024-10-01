@@ -2,11 +2,13 @@ const std = @import("std");
 const time = @import("time.zig");
 const Options = @import("Options.zig");
 const Window = @import("platform").Window;
-const Renderer = @import("renderer/root.zig").Renderer;
+const Renderer = @import("rendering/root.zig").Renderer;
 const app = @import("app");
 const log = std.log.scoped(.engine);
 
 const Engine = @This();
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 gpa: std.mem.Allocator,
 arena: std.heap.ArenaAllocator,
@@ -19,29 +21,27 @@ fixed_delta: u64 = 0,
 minimized: bool = false,
 quit: bool = false,
 
-pub fn create(
-    gpa: std.mem.Allocator,
-    window: Window,
-) !*Engine {
+pub fn create(window: Window) !*Engine {
     const options = if (@hasDecl(app, "gg_options"))
         app.gg_options
     else
         Options{};
 
-    const self = try gpa.create(Engine);
+    const gpa_allocator = gpa.allocator();
+    const self = try gpa_allocator.create(Engine);
     self.* = Engine{
-        .gpa = gpa,
+        .gpa = gpa_allocator,
         .window = window,
-        .arena = std.heap.ArenaAllocator.init(gpa),
+        .arena = std.heap.ArenaAllocator.init(gpa_allocator),
         .timer = time.Timer.start() catch unreachable,
         .fixed_timestep_ns = options.fixed_timestep_ns,
         .app_ptr = undefined,
         .renderer = undefined,
     };
 
-    const allocator = self.arena.allocator();
-    self.app_ptr = try app.create(gpa, allocator);
-    self.renderer = try Renderer.init(gpa, allocator, window, options.render);
+    const arena_allocator = self.arena.allocator();
+    self.app_ptr = try app.create(gpa_allocator, arena_allocator);
+    self.renderer = try Renderer.init(gpa_allocator, arena_allocator, window, options.render);
     return self;
 }
 

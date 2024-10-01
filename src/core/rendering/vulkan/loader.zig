@@ -1,7 +1,7 @@
 const std = @import("std");
 const core = @import("../../root.zig");
 const math = core.math;
-const gltf = core.loader.gltf;
+const gltf = core.loading.gltf;
 
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");

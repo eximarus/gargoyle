@@ -5,6 +5,6 @@ pub const Engine = @import("Engine.zig");
 
 pub const time = @import("time.zig");
 pub const math = @import("math/root.zig");
-pub const loader = @import("loader/root.zig");
-pub const renderer = @import("renderer/root.zig");
+pub const loading = @import("loading/root.zig");
+pub const rendering = @import("rendering/root.zig");
 pub const resource = @import("resource/root.zig");

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("c");
 const platform = @import("platform");
 const core = @import("../../root.zig");
@@ -7,15 +8,16 @@ const math = core.math;
 const vk = @import("vulkan.zig");
 const vkinit = @import("vkinit.zig");
 const vkdraw = @import("vkdraw.zig");
+const debug_utils = @import("debug_utils.zig");
 const descriptors = @import("descriptors.zig");
 const pipelines = @import("pipelines.zig");
 const types = @import("types.zig");
 const loader = @import("loader.zig");
+const sc = @import("swapchain.zig");
 
 const Options = @import("../Options.zig");
-const Swapchain = @import("Swapchain.zig");
-const PhysicalDevice = @import("PhysicalDevice.zig");
 
+const createSwapchain = sc.create;
 const createInstance = @import("instance.zig").create;
 const createDevice = @import("device.zig").create;
 
@@ -41,7 +43,6 @@ device: c.VkDevice,
 surface: c.VkSurfaceKHR,
 
 swapchain: c.VkSwapchainKHR,
-swapchain_image_format: c.VkFormat,
 swapchain_extent: c.VkExtent2D,
 swapchain_images: std.ArrayList(c.VkImage),
 swapchain_image_views: std.ArrayList(c.VkImageView),
@@ -84,52 +85,41 @@ pub fn init(
     self.max_frames_in_flight = if (options.tripple_buffering) 3 else 2;
     self.frames = try gpa.alloc(Frame, self.max_frames_in_flight);
 
-    self.instance, self.debug_messenger = try createInstance(arena);
+    self.instance = try createInstance(arena);
+    if (vk.enable_validation_layers) {
+        self.debug_messenger = try debug_utils.createMessenger(self.instance);
+    }
 
-    const result, const surface = platform.vk.createSurface(window, self.instance);
-    try vk.check(result);
+    try vk.check(platform.vk.createSurface(window, self.instance, &self.surface));
 
-    self.surface = @ptrCast(surface);
-    self.gpu, self.graphics_queue_family, self.device = try createDevice(self.instance, self.surface, arena);
+    const device_result = try createDevice(self.instance, self.surface, arena);
+    self.gpu = device_result.gpu;
+    self.graphics_queue_family = device_result.graphics_queue_family;
+    self.device = device_result.device;
+
     vk.getDeviceQueue(self.device, self.graphics_queue_family, 0, &self.graphics_queue);
 
-    self.swapchain_images = std.ArrayList(c.VkImage).init(gpa);
-    self.swapchain_image_views = std.ArrayList(c.VkImageView).init(gpa);
-    self.swapchain_image_format = c.VK_FORMAT_B8G8R8A8_UNORM;
-
-    const bootstrap_swapchain = try Swapchain.init(
+    const sc_result = try createSwapchain(
         arena,
         self.gpu,
         self.device,
         self.surface,
-        &.{
-            .desired_formats = &.{
-                c.VkSurfaceFormatKHR{
-                    .format = self.swapchain_image_format,
-                    .colorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-                },
-            },
-            .desired_present_modes = &.{
-                if (options.vsync)
-                    c.VK_PRESENT_MODE_FIFO_KHR
-                else
-                    c.VK_PRESENT_MODE_IMMEDIATE_KHR,
-            },
-            .desired_extent = .{
-                .width = window.width,
-                .height = window.height,
-            },
-            .image_usage_flags = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .{
+            .vsync = options.vsync,
+            .width = window.width,
+            .height = window.height,
         },
     );
-    self.swapchain_extent = bootstrap_swapchain.extent;
-    self.swapchain = bootstrap_swapchain.swapchain;
-    try bootstrap_swapchain.getImagesBuffered(&self.swapchain_images);
-    try bootstrap_swapchain.getImageViewsBuffered(
+    self.swapchain_extent = sc_result.extent;
+    self.swapchain = sc_result.swapchain;
+
+    self.swapchain_images = std.ArrayList(c.VkImage).init(gpa);
+    self.swapchain_image_views = std.ArrayList(c.VkImageView).init(gpa);
+    try sc.getImagesBuffered(self.device, self.swapchain, &self.swapchain_images);
+    try sc.getImageViewsBuffered(
+        self.device,
         self.swapchain_images.items,
         &self.swapchain_image_views,
-        null,
     );
 
     const draw_image_extent = c.VkExtent3D{
@@ -697,6 +687,8 @@ pub fn deinit(self: *VulkanRenderer) void {
     }
     vk.destroySurfaceKHR(self.instance, self.surface, null);
     vk.destroyDevice(self.device, null);
-    vk.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
+    if (vk.enable_validation_layers) {
+        vk.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
+    }
     vk.destroyInstance(self.instance, null);
 }

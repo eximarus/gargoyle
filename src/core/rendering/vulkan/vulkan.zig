@@ -1,7 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @import("c");
 const platform = @import("platform");
 const log = std.log.scoped(.vulkan);
+
+pub const validation_layers: []const c.String = &.{
+    "VK_LAYER_KHRONOS_validation",
+};
+pub const enable_validation_layers = builtin.mode == .Debug;
 
 fn PFN(comptime T: type) type {
     return @typeInfo(T).Optional.child;

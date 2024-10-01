@@ -25,9 +25,9 @@ pub fn init(
 pub fn createSurface(
     window: Window,
     instance: c.VkInstance,
-) struct { c.VkResult, c.VkSurfaceKHR } {
-    var surface: c.VkSurfaceKHR = undefined;
-    const result = vkCreateWin32SurfaceKHR(
+    out_surface: *c.VkSurfaceKHR,
+) c.VkResult {
+    return vkCreateWin32SurfaceKHR(
         instance,
         &c.VkWin32SurfaceCreateInfoKHR{
             .sType = c.VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -35,7 +35,6 @@ pub fn createSurface(
             .hwnd = window.hwnd,
         },
         null,
-        &surface,
+        out_surface,
     );
-    return .{ result, surface };
 }

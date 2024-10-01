@@ -25,9 +25,9 @@ pub fn init(
 pub fn createSurface(
     window: Window,
     instance: c.VkInstance,
-) struct { c.VkResult, c.VkSurfaceKHR } {
-    var surface: c.VkSurfaceKHR = undefined;
-    const result = vkCreateXcbSurfaceKHR(
+    out_surface: *c.VkSurfaceKHR,
+) c.VkResult {
+    return vkCreateXcbSurfaceKHR(
         instance,
         &c.VkXcbSurfaceCreateInfoKHR{
             .sType = c.VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
@@ -35,7 +35,6 @@ pub fn createSurface(
             .window = window.window,
         },
         null,
-        @ptrCast(&surface),
+        out_surface,
     );
-    return .{ result, surface };
 }
