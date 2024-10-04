@@ -69,7 +69,10 @@ pub fn create(
     }
 
     if (image_usage_flags & surface_capabilities.supportedUsageFlags != image_usage_flags) {
-        return error.RequiredUsageNotSupported;
+        std.debug.panic(
+            "image usage flags not supported. supported flags: {}",
+            .{surface_capabilities.supportedUsageFlags},
+        );
     }
 
     var swapchain: c.VkSwapchainKHR = undefined;
@@ -104,20 +107,18 @@ pub fn create(
     };
 }
 
-pub inline fn getImageViewsBuffered(
+pub inline fn getImageViews(
+    gpa: std.mem.Allocator,
     device: c.VkDevice,
     images: []c.VkImage,
-    list: *std.ArrayList(c.VkImageView),
-) !void {
-    list.clearRetainingCapacity();
-
+) ![]c.VkImageView {
     var desired_flags: c.VkImageViewUsageCreateInfo = .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO,
         .usage = image_usage_flags,
     };
 
-    try list.ensureUnusedCapacity(images.len);
-    for (images) |image| {
+    const image_views = try gpa.alloc(c.VkImageView, images.len);
+    for (images, image_views) |image, *image_view| {
         var create_info: c.VkImageViewCreateInfo = .{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .pNext = &desired_flags,
@@ -139,28 +140,26 @@ pub inline fn getImageViewsBuffered(
             },
         };
 
-        var image_view: c.VkImageView = undefined;
         try vk.check(vk.createImageView(
             device,
             &create_info,
             null,
-            &image_view,
+            image_view,
         ));
-        try list.append(image_view);
     }
+    return image_views;
 }
 
-pub fn getImagesBuffered(
+pub fn getImages(
+    gpa: std.mem.Allocator,
     device: c.VkDevice,
     swapchain: c.VkSwapchainKHR,
-    list: *std.ArrayList(c.VkImage),
-) !void {
-    list.clearRetainingCapacity();
+) ![]c.VkImage {
     var image_count: u32 = undefined;
     try vk.check(vk.getSwapchainImagesKHR(device, swapchain, &image_count, null));
-    try list.ensureUnusedCapacity(image_count);
-    try vk.check(vk.getSwapchainImagesKHR(device, swapchain, &image_count, list.unusedCapacitySlice().ptr));
-    list.items.len += image_count;
+    const images = try gpa.alloc(c.VkImage, image_count);
+    try vk.check(vk.getSwapchainImagesKHR(device, swapchain, &image_count, images.ptr));
+    return images;
 }
 
 fn findBestSurfaceFormat(

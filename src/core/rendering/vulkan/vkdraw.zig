@@ -5,10 +5,10 @@ const time = core.time;
 const math = core.math;
 
 const vk = @import("vulkan.zig");
-const vkinit = @import("vkinit.zig");
 const common = @import("common.zig");
+const resources = @import("resources.zig");
 const descriptors = @import("descriptors.zig");
-const pipelines = @import("pipelines.zig");
+const GraphicsShader = @import("shader.zig").GraphicsShader;
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
@@ -18,7 +18,7 @@ pub inline fn transitionImage(
     current_layout: c.VkImageLayout,
     new_layout: c.VkImageLayout,
 ) void {
-    vk.cmdPipelineBarrier2KHR(cmd, &.{
+    vk.cmdPipelineBarrier2(cmd, &.{
         .sType = c.VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &.{
@@ -31,166 +31,137 @@ pub inline fn transitionImage(
 
             .oldLayout = current_layout,
             .newLayout = new_layout,
-
-            .subresourceRange = vkinit.imageSubresourceRange(
-                if (new_layout == c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+            .subresourceRange = c.VkImageSubresourceRange{
+                .aspectMask = if (new_layout == c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
                     c.VK_IMAGE_ASPECT_DEPTH_BIT
                 else
                     c.VK_IMAGE_ASPECT_COLOR_BIT,
-            ),
+                .baseMipLevel = 0,
+                .levelCount = c.VK_REMAINING_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = c.VK_REMAINING_ARRAY_LAYERS,
+            },
             .image = image,
         },
     });
 }
 
-var frame: u32 = 0;
-
-pub fn geometry(self: *VulkanRenderer, cmd: c.VkCommandBuffer) void {
-    vk.cmdBeginRenderingKHR(cmd, &vkinit.renderingInfo(
-        self.draw_extent,
-        &vkinit.attachmentInfo(
-            self.draw_image.image_view,
-            null,
-            c.VK_IMAGE_LAYOUT_GENERAL,
-        ),
-        &vkinit.depthAttachmentInfo(
-            self.depth_image.image_view,
-            c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        ),
-    ));
-
-    vk.cmdBindPipeline(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.mesh_pipeline);
-    const viewport_height: f32 = @floatFromInt(self.draw_extent.height);
-
-    vk.cmdSetViewport(cmd, 0, 1, &c.VkViewport{
-        .x = 0,
-        .y = viewport_height,
-        .width = @floatFromInt(self.draw_extent.width),
-        .height = -viewport_height,
-        .minDepth = 0.0,
-        .maxDepth = 1.0,
-    });
-
-    vk.cmdSetScissor(cmd, 0, 1, &c.VkRect2D{
-        .offset = .{ .x = 0, .y = 0 },
-        .extent = .{
-            .width = self.draw_extent.width,
-            .height = self.draw_extent.height,
+pub fn graphics(
+    cmd: c.VkCommandBuffer,
+    draw_extent: c.VkExtent2D,
+    draw_image: resources.Image,
+    depth_image: resources.Image,
+    shader: GraphicsShader,
+    push_constants: types.PushConstants,
+    index_buffer: resources.Buffer,
+) void {
+    vk.cmdBeginRendering(cmd, &c.VkRenderingInfo{
+        .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+        .renderArea = c.VkRect2D{
+            .offset = c.VkOffset2D{ .x = 0, .y = 0 },
+            .extent = draw_extent,
         },
-    });
-
-    const model = math.Mat4.scaling(math.vec3(1.5, 1.5, 1.5)).mul(
-        math.Mat4.rotation(math.Quat.fromAxisAngle(math.vec3(0, 0, 1), math.degToRad(45))),
-    ).mul(math.Mat4.translation(math.vec3(0.0, 0.0, 0.0)));
-
-    const view = math.Mat4.lookAt(
-        math.vec3(0, 0.0, -5.0),
-        math.vec3(0, 0.0, 0.0),
-        math.vec3(0, 1.0, 0.0),
-    );
-
-    const projection = math.Mat4.perspective(
-        math.degToRad(60.0),
-        @floatFromInt(self.draw_extent.width),
-        @floatFromInt(self.draw_extent.height),
-        0.3,
-        100.0,
-    );
-
-    const mesh = self.test_meshes[2];
-    var push_constants = types.DrawPushConstants{
-        .world_matrix = projection.mul(view.mul(model)),
-        .vertex_buffer = mesh.vb_addr,
-    };
-
-    vk.cmdPushConstants(
-        cmd,
-        self.mesh_pipeline_layout,
-        c.VK_SHADER_STAGE_VERTEX_BIT,
-        0,
-        @sizeOf(types.DrawPushConstants),
-        &push_constants,
-    );
-
-    vk.cmdBindIndexBuffer(cmd, mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    vk.cmdDrawIndexed(cmd, @intCast(mesh.index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
-    vk.cmdEndRenderingKHR(cmd);
-}
-
-pub fn dynamicWIP(self: *VulkanRenderer, cmd: c.VkCommandBuffer) void {
-    cmd.beginRendering(
-        &vkinit.renderingInfo(
-            self.draw_extent,
-            &vkinit.attachmentInfo(
-                self.draw_image.image_view,
-                null,
-                c.VK_IMAGE_LAYOUT_GENERAL,
-            ),
-            &vkinit.depthAttachmentInfo(
-                self.depth_image.image_view,
-                c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-            ),
-        ),
-    );
-
-    cmd.bindPipeline(c.VK_PIPELINE_BIND_POINT_GRAPHICS, self.mesh_pipeline);
-    const viewport_height: f32 = @floatFromInt(self.draw_extent.height);
-    cmd.setViewport(0, &.{
-        c.VkViewport{
-            .x = 0,
-            .y = viewport_height,
-            .width = @floatFromInt(self.draw_extent.width),
-            .height = -viewport_height,
-            .minDepth = 0.0,
-            .maxDepth = 1.0,
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &c.VkRenderingAttachmentInfo{
+            .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = draw_image.view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+            .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = c.VkClearValue{
+                .color = c.VkClearColorValue{
+                    .float32 = [4]f32{ 0.0, 0.0, 0.0, 0.0 },
+                },
+            },
         },
-    });
-
-    cmd.setScissor(0, &.{
-        c.VkRect2D{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = .{
-                .width = self.draw_extent.width,
-                .height = self.draw_extent.height,
+        .pDepthAttachment = &c.VkRenderingAttachmentInfo{
+            .sType = c.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .imageView = depth_image.view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = .{
+                .depthStencil = .{
+                    .depth = 1.0,
+                },
             },
         },
     });
 
-    const model = math.Mat4.scaling(math.vec3(1.5, 1.5, 1.5)).mul(
-        math.Mat4.rotation(math.Quat.fromAxisAngle(math.vec3(0, 0, 1), math.degToRad(45))),
-    ).mul(math.Mat4.translation(math.vec3(0.0, 0.0, 0.0)));
+    shader.bind(cmd);
+    const viewport_height: f32 = @floatFromInt(draw_extent.height);
 
-    const view = math.Mat4.lookAt(
-        math.vec3(0, 0.0, -5.0),
-        math.vec3(0, 0.0, 0.0),
-        math.vec3(0, 1.0, 0.0),
+    // vertex input state
+    vk.cmdSetVertexInputEXT(cmd, 0, &.{}, 0, &.{});
+
+    // input assembly state
+    vk.cmdSetPrimitiveTopologyEXT(cmd, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    vk.cmdSetPrimitiveRestartEnableEXT(cmd, c.VK_FALSE);
+
+    // viewport state
+    vk.cmdSetViewportWithCountEXT(cmd, 1, &c.VkViewport{
+        .x = 0,
+        .y = viewport_height,
+        .width = @floatFromInt(draw_extent.width),
+        .height = -viewport_height,
+        .minDepth = 0.0,
+        .maxDepth = 1.0,
+    });
+    vk.cmdSetScissorWithCountEXT(cmd, 1, &c.VkRect2D{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = .{
+            .width = draw_extent.width,
+            .height = draw_extent.height,
+        },
+    });
+
+    // rasterization state
+    vk.cmdSetPolygonModeEXT(cmd, c.VK_POLYGON_MODE_FILL);
+    vk.cmdSetFrontFaceEXT(cmd, c.VK_FRONT_FACE_CLOCKWISE);
+    vk.cmdSetCullModeEXT(cmd, c.VK_CULL_MODE_BACK_BIT);
+    vk.cmdSetRasterizerDiscardEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetDepthBiasEnableEXT(cmd, c.VK_FALSE);
+
+    vk.cmdSetSampleMaskEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT, &[1]c.VkSampleMask{0xffffffff});
+    vk.cmdSetRasterizationSamplesEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT);
+    vk.cmdSetAlphaToCoverageEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetAlphaToOneEnableEXT(cmd, c.VK_FALSE);
+
+    // color blend state
+    vk.cmdSetLogicOpEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetLogicOpEXT(cmd, c.VK_LOGIC_OP_COPY);
+    vk.cmdSetColorWriteMaskEXT(
+        cmd,
+        0,
+        1,
+        &[1]c.VkColorComponentFlagBits{c.VK_COLOR_COMPONENT_R_BIT |
+            c.VK_COLOR_COMPONENT_G_BIT |
+            c.VK_COLOR_COMPONENT_B_BIT |
+            c.VK_COLOR_COMPONENT_A_BIT},
     );
+    vk.cmdSetColorBlendEnableEXT(cmd, 0, 1, &[1]c.VkBool32{c.VK_FALSE});
+    vk.cmdSetColorBlendEquationEXT(cmd, 0, 1, &c.VkColorBlendEquationEXT{});
 
-    const projection = math.Mat4.perspective(
-        math.degToRad(60.0),
-        @floatFromInt(self.draw_extent.width),
-        @floatFromInt(self.draw_extent.height),
-        0.3,
-        100.0,
-    );
+    // depth stencil state
+    vk.cmdSetDepthBoundsTestEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetStencilTestEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetDepthTestEnableEXT(cmd, c.VK_TRUE);
+    vk.cmdSetDepthWriteEnableEXT(cmd, c.VK_TRUE);
+    vk.cmdSetDepthCompareOpEXT(cmd, c.VK_COMPARE_OP_LESS);
 
-    const mesh = self.test_meshes[2];
-    var push_constants = types.DrawPushConstants{
-        .world_matrix = projection.mul(view.mul(model)),
-        .vertex_buffer = mesh.vb_addr,
-    };
-
-    cmd.pushConstants(
-        self.mesh_pipeline_layout,
+    vk.cmdPushConstants(
+        cmd,
+        shader.layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
-        @sizeOf(types.DrawPushConstants),
+        @sizeOf(types.PushConstants),
         &push_constants,
     );
 
-    cmd.bindIndexBuffer(mesh.index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    cmd.drawIndexed(@intCast(mesh.index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
-    cmd.endRendering();
+    vk.cmdBindIndexBuffer(cmd, index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
+    vk.cmdDrawIndexed(cmd, @intCast(index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
+    vk.cmdEndRendering(cmd);
 }
 
 pub inline fn copyImageToImage(

@@ -20,7 +20,7 @@ pub fn create(arena: std.mem.Allocator) !c.VkInstance {
         .applicationVersion = c.VK_MAKE_VERSION(app_ver.major, app_ver.minor, app_ver.patch),
         .pEngineName = "gargoyle",
         .engineVersion = c.VK_MAKE_VERSION(0, 0, 1),
-        .apiVersion = c.VK_MAKE_VERSION(1, 2, 197), // TODO choose appropriate version
+        .apiVersion = c.VK_MAKE_VERSION(1, 3, 276),
     };
 
     var extensions = std.ArrayList(c.String).init(arena);

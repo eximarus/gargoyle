@@ -88,9 +88,9 @@ pub fn addShader(
         "-target",
         "spirv",
         "-emit-spirv-directly",
-        "-force-glsl-scalar-layout",
-        "-matrix-layout-column-major",
         "-fvk-use-entrypoint-name",
+        "-fvk-use-scalar-layout",
+        "-matrix-layout-column-major",
         "-o",
     });
     const out_file = cmd.addOutputFileArg(

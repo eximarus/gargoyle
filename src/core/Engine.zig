@@ -40,8 +40,8 @@ pub fn create(window: Window) !*Engine {
     };
 
     const arena_allocator = self.arena.allocator();
-    self.app_ptr = try app.create(gpa_allocator, arena_allocator);
     self.renderer = try Renderer.init(gpa_allocator, arena_allocator, window, options.render);
+    self.app_ptr = try app.create(gpa_allocator, arena_allocator);
     return self;
 }
 
@@ -53,7 +53,6 @@ pub fn update(self: *Engine) u32 {
     const fixed_dt = time.nanosToSeconds(fixed_timestep);
     self.fixed_delta += dt_ns;
 
-    // todo interpolate physics for vsync?
     while (self.fixed_delta >= fixed_timestep) {
         app.fixedUpdate(self.app_ptr, fixed_dt) catch |err| {
             log.err("caught app error during fixed update: {}", .{err});
@@ -76,7 +75,7 @@ pub fn update(self: *Engine) u32 {
         return 0;
     }
 
-    self.renderer.render(self.app_ptr) catch |err| {
+    self.renderer.render() catch |err| {
         log.err("caught render error: {}", .{err});
         if (@errorReturnTrace()) |t| {
             std.debug.dumpStackTrace(t.*);
@@ -92,6 +91,5 @@ pub fn update(self: *Engine) u32 {
 }
 
 pub fn shutdown(self: *Engine) void {
-    self.renderer.deinit();
     app.shutdown(self.app_ptr);
 }

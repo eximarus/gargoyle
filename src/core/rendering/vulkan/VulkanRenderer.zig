@@ -6,20 +6,23 @@ const core = @import("../../root.zig");
 const math = core.math;
 
 const vk = @import("vulkan.zig");
-const vkinit = @import("vkinit.zig");
 const vkdraw = @import("vkdraw.zig");
 const debug_utils = @import("debug_utils.zig");
 const descriptors = @import("descriptors.zig");
-const pipelines = @import("pipelines.zig");
 const types = @import("types.zig");
 const loader = @import("loader.zig");
 const sc = @import("swapchain.zig");
+const resources = @import("resources.zig");
 
 const Options = @import("../Options.zig");
 
-const createSwapchain = sc.create;
+const Shader = @import("shader.zig").GraphicsShader;
+const createShader = @import("shader.zig").create;
+
 const createInstance = @import("instance.zig").create;
+const pickPhysicalDevice = @import("physical_device.zig").pick;
 const createDevice = @import("device.zig").create;
+const createSwapchain = sc.create;
 
 const Window = platform.Window;
 
@@ -38,14 +41,17 @@ arena: std.mem.Allocator,
 
 instance: c.VkInstance,
 debug_messenger: c.VkDebugUtilsMessengerEXT,
+
 gpu: c.VkPhysicalDevice,
+gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+
 device: c.VkDevice,
 surface: c.VkSurfaceKHR,
 
 swapchain: c.VkSwapchainKHR,
 swapchain_extent: c.VkExtent2D,
-swapchain_images: std.ArrayList(c.VkImage),
-swapchain_image_views: std.ArrayList(c.VkImageView),
+swapchain_images: []c.VkImage,
+swapchain_image_views: []c.VkImageView,
 
 graphics_queue_family: u32,
 graphics_queue: c.VkQueue,
@@ -56,8 +62,8 @@ max_frames_in_flight: usize = 2,
 
 global_descriptor_pool: c.VkDescriptorPool,
 
-depth_image: types.Image,
-draw_image: types.Image,
+depth_image: resources.Image,
+draw_image: resources.Image,
 draw_extent: c.VkExtent2D,
 draw_image_descriptors: c.VkDescriptorSet,
 draw_image_descriptor_layout: c.VkDescriptorSetLayout,
@@ -66,9 +72,8 @@ imm_fence: c.VkFence,
 imm_command_buffer: c.VkCommandBuffer,
 imm_command_pool: c.VkCommandPool,
 
-mesh_pipeline_layout: c.VkPipelineLayout,
-mesh_pipeline: c.VkPipeline,
 test_meshes: []types.Mesh,
+geometry_shader: Shader,
 
 pub fn init(
     gpa: std.mem.Allocator,
@@ -92,10 +97,12 @@ pub fn init(
 
     try vk.check(platform.vk.createSurface(window, self.instance, &self.surface));
 
-    const device_result = try createDevice(self.instance, self.surface, arena);
-    self.gpu = device_result.gpu;
-    self.graphics_queue_family = device_result.graphics_queue_family;
-    self.device = device_result.device;
+    const gpu_result = try pickPhysicalDevice(arena, self.instance, self.surface);
+    self.gpu = gpu_result.gpu;
+    self.graphics_queue_family = gpu_result.graphics_queue_family;
+    vk.getPhysicalDeviceMemoryProperties(self.gpu, &self.gpu_mem_props);
+
+    self.device = try createDevice(self.gpu, self.graphics_queue_family);
 
     vk.getDeviceQueue(self.device, self.graphics_queue_family, 0, &self.graphics_queue);
 
@@ -113,13 +120,11 @@ pub fn init(
     self.swapchain_extent = sc_result.extent;
     self.swapchain = sc_result.swapchain;
 
-    self.swapchain_images = std.ArrayList(c.VkImage).init(gpa);
-    self.swapchain_image_views = std.ArrayList(c.VkImageView).init(gpa);
-    try sc.getImagesBuffered(self.device, self.swapchain, &self.swapchain_images);
-    try sc.getImageViewsBuffered(
+    self.swapchain_images = try sc.getImages(gpa, self.device, self.swapchain);
+    self.swapchain_image_views = try sc.getImageViews(
+        gpa,
         self.device,
-        self.swapchain_images.items,
-        &self.swapchain_image_views,
+        self.swapchain_images,
     );
 
     const draw_image_extent = c.VkExtent3D{
@@ -127,108 +132,38 @@ pub fn init(
         .height = window.height,
         .depth = 1,
     };
-
-    self.draw_image.image_format = c.VK_FORMAT_R16G16B16A16_SFLOAT;
-    self.draw_image.image_extent = draw_image_extent;
-    const draw_image_usages =
-        c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-        c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-        c.VK_IMAGE_USAGE_STORAGE_BIT |
-        c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-    try vk.check(vk.createImage(
-        self.device,
-        &vkinit.imageCreateInfo(
-            self.draw_image.image_format,
-            draw_image_usages,
-            draw_image_extent,
-        ),
-        null,
-        &self.draw_image.image,
-    ));
-
-    var req: c.VkMemoryRequirements = undefined;
-    vk.getImageMemoryRequirements(self.device, self.draw_image.image, &req);
-
-    try vk.check(vk.allocateMemory(self.device, &c.VkMemoryAllocateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = req.size,
-        .memoryTypeIndex = try self.findMemoryType(
-            req.memoryTypeBits,
-            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        ),
-    }, null, &self.draw_image.memory));
-
-    try vk.check(vk.bindImageMemory(self.device, self.draw_image.image, self.draw_image.memory, 0));
-
-    try vk.check(vk.createImageView(
-        self.device,
-        &vkinit.imageViewCreateInfo(
-            self.draw_image.image_format,
-            self.draw_image.image,
-            c.VK_IMAGE_ASPECT_COLOR_BIT,
-        ),
-        null,
-        &self.draw_image.image_view,
-    ));
-
-    self.depth_image.image_format = c.VK_FORMAT_D32_SFLOAT;
-    self.depth_image.image_extent = draw_image_extent;
-
-    const depth_image_usages = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-    try vk.check(vk.createImage(
-        self.device,
-        &vkinit.imageCreateInfo(
-            self.depth_image.image_format,
-            depth_image_usages,
-            draw_image_extent,
-        ),
-        null,
-        &self.depth_image.image,
-    ));
-
-    var depth_req: c.VkMemoryRequirements = undefined;
-    vk.getImageMemoryRequirements(self.device, self.depth_image.image, &depth_req);
-
-    try vk.check(vk.allocateMemory(
-        self.device,
-        &c.VkMemoryAllocateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = req.size,
-            .memoryTypeIndex = try self.findMemoryType(
-                depth_req.memoryTypeBits,
-                c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            ),
-        },
-        null,
-        &self.depth_image.memory,
-    ));
-
-    try vk.check(vk.bindImageMemory(self.device, self.depth_image.image, self.depth_image.memory, 0));
-
-    try vk.check(vk.createImageView(
-        self.device,
-        &vkinit.imageViewCreateInfo(
-            self.depth_image.image_format,
-            self.depth_image.image,
-            c.VK_IMAGE_ASPECT_DEPTH_BIT,
-        ),
-        null,
-        &self.depth_image.image_view,
-    ));
+    self.draw_image = try resources.createImage(self.device, .{
+        .format = c.VK_FORMAT_R16G16B16A16_SFLOAT,
+        .extent = draw_image_extent,
+        .aspect_flags = c.VK_IMAGE_ASPECT_COLOR_BIT,
+        .usage_flags = c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            c.VK_IMAGE_USAGE_STORAGE_BIT |
+            c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .gpu_mem_props = self.gpu_mem_props,
+        .image_mem_props = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    });
+    self.depth_image = try resources.createImage(self.device, .{
+        .format = c.VK_FORMAT_D32_SFLOAT,
+        .extent = draw_image_extent,
+        .usage_flags = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .aspect_flags = c.VK_IMAGE_ASPECT_DEPTH_BIT,
+        .gpu_mem_props = self.gpu_mem_props,
+        .image_mem_props = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    });
 
     try self.initCommands();
     try self.initSync();
     try self.initDescriptors();
-    try self.initPipelines();
 
-    try self.initDefaultData();
+    self.geometry_shader = try createShader(
+        "assets/shaders/default.spv",
+        self.arena,
+        self.device,
+        .{},
+    );
+    self.test_meshes = try loader.loadGltfMeshes(&self, "assets/basicmesh.glb");
     return self;
-}
-
-fn initDefaultData(self: *VulkanRenderer) !void {
-    self.test_meshes = try loader.loadGltfMeshes(self, "assets/basicmesh.glb");
 }
 
 fn initCommands(self: *VulkanRenderer) !void {
@@ -247,7 +182,12 @@ fn initCommands(self: *VulkanRenderer) !void {
 
         try vk.check(vk.allocateCommandBuffers(
             self.device,
-            &vkinit.commandBufferAllocateInfo(frame.command_pool, 1),
+            &c.VkCommandBufferAllocateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = frame.command_pool,
+                .commandBufferCount = 1,
+                .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            },
             &frame.command_buffer,
         ));
     }
@@ -258,9 +198,15 @@ fn initCommands(self: *VulkanRenderer) !void {
         null,
         &self.imm_command_pool,
     ));
+
     try vk.check(vk.allocateCommandBuffers(
         self.device,
-        &vkinit.commandBufferAllocateInfo(self.imm_command_pool, 1),
+        &c.VkCommandBufferAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = self.imm_command_pool,
+            .commandBufferCount = 1,
+            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        },
         &self.imm_command_buffer,
     ));
 }
@@ -305,7 +251,7 @@ fn initDescriptors(self: *VulkanRenderer) !void {
             .descriptorType = c.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             .pImageInfo = &c.VkDescriptorImageInfo{
                 .imageLayout = c.VK_IMAGE_LAYOUT_GENERAL,
-                .imageView = self.draw_image.image_view,
+                .imageView = self.draw_image.view,
             },
         },
         0,
@@ -313,46 +259,15 @@ fn initDescriptors(self: *VulkanRenderer) !void {
     );
 }
 
-fn initPipelines(self: *VulkanRenderer) !void {
-    const shader = try pipelines.loadShaderModule(
-        "assets/shaders/default.spv",
-        self.arena,
-        self.device,
-    );
-    defer vk.destroyShaderModule(self.device, shader, null);
-
-    var pipline_layout_info = vkinit.pipelineLayoutCreateInfo();
-    pipline_layout_info.pushConstantRangeCount = 1;
-    pipline_layout_info.pPushConstantRanges = &c.VkPushConstantRange{
-        .offset = 0,
-        .size = @sizeOf(types.DrawPushConstants),
-        .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+fn initSync(self: *VulkanRenderer) !void {
+    const fence_create_info = c.VkFenceCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = c.VK_FENCE_CREATE_SIGNALED_BIT,
     };
 
-    try vk.check(vk.createPipelineLayout(self.device, &pipline_layout_info, null, &self.mesh_pipeline_layout));
-
-    self.mesh_pipeline = try pipelines.pipeline(self.device, &.{
-        .shader_module = shader,
-        .pipeline_layout = self.mesh_pipeline_layout,
-        .input_topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .polygon_mode = c.VK_POLYGON_MODE_FILL,
-        .cull_mode = .{
-            .flags = c.VK_CULL_MODE_BACK_BIT,
-            .front_face = c.VK_FRONT_FACE_CLOCKWISE,
-        },
-        .blending = .none,
-        .depth_test = .{
-            .depth_write_enable = true,
-            .op = c.VK_COMPARE_OP_LESS,
-        },
-        .color_attachment_format = self.draw_image.image_format,
-        .depth_format = self.depth_image.image_format,
-    });
-}
-
-fn initSync(self: *VulkanRenderer) !void {
-    const fence_create_info = vkinit.fenceCreateInfo(c.VK_FENCE_CREATE_SIGNALED_BIT);
-    const sempahore_create_info = vkinit.semaphoreCreateInfo(0);
+    const sempahore_create_info = c.VkSemaphoreCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
 
     for (self.frames) |*frame| {
         try vk.check(vk.createFence(self.device, &fence_create_info, null, &frame.render_fence));
@@ -363,60 +278,8 @@ fn initSync(self: *VulkanRenderer) !void {
     try vk.check(vk.createFence(self.device, &fence_create_info, null, &self.imm_fence));
 }
 
-fn createBuffer(
-    self: *VulkanRenderer,
-    alloc_size: usize,
-    usage: c.VkBufferUsageFlags,
-    memory_properties: c.VkMemoryPropertyFlags,
-    next: ?*anyopaque,
-) !types.Buffer {
-    var new_buffer: types.Buffer = undefined;
-    new_buffer.size = alloc_size;
-
-    try vk.check(vk.createBuffer(
-        self.device,
-        &c.VkBufferCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = @intCast(alloc_size),
-            .usage = usage,
-            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
-        },
-        null,
-        &new_buffer.buffer,
-    ));
-
-    var req: c.VkMemoryRequirements = undefined;
-    vk.getBufferMemoryRequirements(self.device, new_buffer.buffer, &req);
-
-    try vk.check(vk.allocateMemory(self.device, &c.VkMemoryAllocateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = next,
-        .allocationSize = req.size,
-        .memoryTypeIndex = try self.findMemoryType(
-            req.memoryTypeBits,
-            memory_properties,
-        ),
-    }, null, &new_buffer.memory));
-
-    try vk.check(vk.bindBufferMemory(self.device, new_buffer.buffer, new_buffer.memory, 0));
-    return new_buffer;
-}
-
-fn findMemoryType(self: *VulkanRenderer, type_filter: u32, properties: c.VkMemoryPropertyFlags) !u32 {
-    var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
-    vk.getPhysicalDeviceMemoryProperties(self.gpu, &mem_props);
-
-    for (0..mem_props.memoryTypeCount) |i| {
-        if (type_filter & (@as(u32, 1) << @intCast(i)) != 0 and (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
-            return @intCast(i);
-        }
-    }
-
-    return error.SuitableMemoryTypeNotFound;
-}
-
-pub fn render(self: *VulkanRenderer, app: anytype) !void {
-    _ = app;
+var rotation: u32 = 0;
+pub fn render(self: *VulkanRenderer) !void {
     const frame = self.frames[self.frame_number];
     const timeout = 1 * std.time.ns_per_s;
 
@@ -434,8 +297,8 @@ pub fn render(self: *VulkanRenderer, app: anytype) !void {
     ));
 
     self.draw_extent = .{
-        .width = self.draw_image.image_extent.width,
-        .height = self.draw_image.image_extent.height,
+        .width = self.draw_image.extent.width,
+        .height = self.draw_image.extent.height,
     };
 
     try vk.check(vk.resetCommandBuffer(frame.command_buffer, 0));
@@ -458,7 +321,43 @@ pub fn render(self: *VulkanRenderer, app: anytype) !void {
         c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     );
 
-    vkdraw.geometry(self, frame.command_buffer);
+    const model = math.Mat4.scaling(math.vec3(1.5, 1.5, 1.5)).mul(
+        math.Mat4.rotation(math.Quat.fromAxisAngle(
+            math.vec3(0, 1, 0),
+            math.degToRad(@as(f32, @floatFromInt(rotation)) * 1.0),
+        )),
+    ).mul(math.Mat4.translation(math.vec3(0.0, 0.0, 0.0)));
+
+    rotation = (rotation + 1) % 360;
+    const view = math.Mat4.lookAt(
+        math.vec3(0, 0.0, -5.0),
+        math.vec3(0, 0.0, 0.0),
+        math.vec3(0, 1.0, 0.0),
+    );
+
+    const projection = math.Mat4.perspective(
+        math.degToRad(60.0),
+        @floatFromInt(self.draw_extent.width),
+        @floatFromInt(self.draw_extent.height),
+        0.3,
+        100.0,
+    );
+
+    const mesh = self.test_meshes[2];
+    const push_constants = types.PushConstants{
+        .world_matrix = projection.mul(view.mul(model)),
+        .vertex_buffer = mesh.vb_addr,
+    };
+
+    vkdraw.graphics(
+        frame.command_buffer,
+        self.draw_extent,
+        self.draw_image,
+        self.depth_image,
+        self.geometry_shader,
+        push_constants,
+        mesh.index_buffer,
+    );
 
     vkdraw.transitionImage(
         frame.command_buffer,
@@ -467,7 +366,7 @@ pub fn render(self: *VulkanRenderer, app: anytype) !void {
         c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     );
 
-    const next_image = self.swapchain_images.items[swapchain_image_index];
+    const next_image = self.swapchain_images[swapchain_image_index];
 
     vkdraw.transitionImage(
         frame.command_buffer,
@@ -500,19 +399,30 @@ pub fn render(self: *VulkanRenderer, app: anytype) !void {
 
     try vk.check(vk.endCommandBuffer(frame.command_buffer));
 
-    const cmd_info = vkinit.commandBufferSubmitInfo(frame.command_buffer);
-    const wait_info = vkinit.sempahoreSubmitInfo(
-        frame.swapchain_semaphore,
-        c.VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
-    );
-
-    const signal_info = vkinit.sempahoreSubmitInfo(
-        frame.render_semaphore,
-        c.VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-    );
-
-    const submit = vkinit.submitInfo(&.{cmd_info}, &.{signal_info}, &.{wait_info});
-    try vk.check(vk.queueSubmit2KHR(self.graphics_queue, 1, &submit, frame.render_fence));
+    try vk.check(vk.queueSubmit2(self.graphics_queue, 1, &c.VkSubmitInfo2{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount = 1,
+        .pWaitSemaphoreInfos = &c.VkSemaphoreSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = frame.swapchain_semaphore,
+            .stageMask = c.VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+            .deviceIndex = 0,
+            .value = 1,
+        },
+        .signalSemaphoreInfoCount = 1,
+        .pSignalSemaphoreInfos = &c.VkSemaphoreSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = frame.render_semaphore,
+            .stageMask = c.VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+            .deviceIndex = 0,
+            .value = 1,
+        },
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &c.VkCommandBufferSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = frame.command_buffer,
+        },
+    }, frame.render_fence));
 
     try vk.check(vk.queuePresentKHR(self.graphics_queue, &.{
         .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -535,16 +445,20 @@ pub fn uploadMesh(
     const ib_size = indices.len * @sizeOf(u32);
 
     var mesh: types.Mesh = undefined;
-    mesh.vertex_buffer = try self.createBuffer(
-        vb_size,
-        c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        @constCast(&c.VkMemoryAllocateFlagsInfo{
-            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-            .flags = c.VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
-        }),
+    mesh.vertex_buffer = try resources.createBuffer(
+        self.device,
+        .{
+            .size = vb_size,
+            .usage = c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            .buf_mem_props = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .gpu_mem_props = self.gpu_mem_props,
+            .alloc_flags = c.VkMemoryAllocateFlagsInfo{
+                .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+                .flags = c.VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+            },
+        },
     );
 
     mesh.vb_addr = vk.getBufferDeviceAddress(
@@ -555,18 +469,26 @@ pub fn uploadMesh(
         },
     );
 
-    mesh.index_buffer = try self.createBuffer(
-        ib_size,
-        c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT | c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        null,
+    mesh.index_buffer = try resources.createBuffer(
+        self.device,
+        .{
+            .size = ib_size,
+            .usage = c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .buf_mem_props = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .gpu_mem_props = self.gpu_mem_props,
+        },
     );
 
-    const staging = try self.createBuffer(
-        vb_size + ib_size,
-        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        null,
+    const staging = try resources.createBuffer(
+        self.device,
+        .{
+            .size = vb_size + ib_size,
+            .usage = c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .buf_mem_props = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            .gpu_mem_props = self.gpu_mem_props,
+        },
     );
 
     // TODO allocate larger chunks of memory at once and use offsets
@@ -576,14 +498,14 @@ pub fn uploadMesh(
     @memcpy(data[vb_size..], std.mem.sliceAsBytes(indices));
     vk.unmapMemory(self.device, staging.memory);
 
-    const Context = struct {
+    const C = struct {
         vertex_buffer: c.VkBuffer,
         vb_size: usize,
         index_buffer: c.VkBuffer,
         ib_size: usize,
         staging_buffer: c.VkBuffer,
 
-        pub fn submit(this: *@This(), cmd: c.VkCommandBuffer) void {
+        pub fn submit(this: @This(), cmd: c.VkCommandBuffer) void {
             const vertex_copy = c.VkBufferCopy{
                 .dstOffset = 0,
                 .srcOffset = 0,
@@ -602,15 +524,13 @@ pub fn uploadMesh(
         }
     };
 
-    var ctx = Context{
+    try self.immediateSubmit(&C{
         .vertex_buffer = mesh.vertex_buffer.buffer,
         .vb_size = vb_size,
         .index_buffer = mesh.index_buffer.buffer,
         .ib_size = ib_size,
         .staging_buffer = staging.buffer,
-    };
-
-    try self.immediateSubmit(&ctx, @ptrCast(&Context.submit));
+    });
 
     vk.destroyBuffer(self.device, staging.buffer, null);
     vk.freeMemory(self.device, staging.memory, null);
@@ -620,75 +540,31 @@ pub fn uploadMesh(
 
 fn immediateSubmit(
     self: *VulkanRenderer,
-    context: *anyopaque,
-    submit: *const fn (self: *anyopaque, cmd: c.VkCommandBuffer) void,
+    ctx: anytype,
 ) !void {
     try vk.check(vk.resetFences(self.device, 1, &self.imm_fence));
     try vk.check(vk.resetCommandBuffer(self.imm_command_buffer, 0));
 
     const cmd = self.imm_command_buffer;
 
-    try vk.check(vk.beginCommandBuffer(cmd, &vkinit.commandBufferBeginInfo(
-        c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    )));
+    try vk.check(vk.beginCommandBuffer(cmd, &c.VkCommandBufferBeginInfo{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    }));
 
-    submit(context, cmd);
+    ctx.submit(cmd);
 
     try vk.check(vk.endCommandBuffer(cmd));
 
-    const submit_info = vkinit.submitInfo(
-        &.{vkinit.commandBufferSubmitInfo(cmd)},
-        &.{},
-        &.{},
-    );
+    const submit_info = c.VkSubmitInfo2{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &c.VkCommandBufferSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = cmd,
+        },
+    };
 
-    try vk.check(vk.queueSubmit2KHR(self.graphics_queue, 1, &submit_info, self.imm_fence));
+    try vk.check(vk.queueSubmit2(self.graphics_queue, 1, &submit_info, self.imm_fence));
     try vk.check(vk.waitForFences(self.device, 1, &self.imm_fence, c.VK_TRUE, 9999999999));
-}
-
-pub fn deinit(self: *VulkanRenderer) void {
-    _ = vk.deviceWaitIdle(self.device);
-
-    vk.destroyDescriptorSetLayout(self.device, self.draw_image_descriptor_layout, null);
-    vk.destroyDescriptorPool(self.device, self.global_descriptor_pool, null);
-
-    vk.destroyPipelineLayout(self.device, self.mesh_pipeline_layout, null);
-    vk.destroyPipeline(self.device, self.mesh_pipeline, null);
-
-    vk.destroyImageView(self.device, self.draw_image.image_view, null);
-    vk.destroyImage(self.device, self.draw_image.image, null);
-    vk.freeMemory(self.device, self.draw_image.memory, null);
-
-    vk.destroyImageView(self.device, self.depth_image.image_view, null);
-    vk.destroyImage(self.device, self.depth_image.image, null);
-    vk.freeMemory(self.device, self.depth_image.memory, null);
-
-    for (self.test_meshes) |mesh_asset| {
-        vk.destroyBuffer(self.device, mesh_asset.index_buffer.buffer, null);
-        vk.freeMemory(self.device, mesh_asset.index_buffer.memory, null);
-
-        vk.destroyBuffer(self.device, mesh_asset.vertex_buffer.buffer, null);
-        vk.freeMemory(self.device, mesh_asset.vertex_buffer.memory, null);
-    }
-
-    vk.destroyFence(self.device, self.imm_fence, null);
-
-    vk.destroyCommandPool(self.device, self.imm_command_pool, null);
-    for (self.frames) |*frame| {
-        vk.destroyCommandPool(self.device, frame.command_pool, null);
-        vk.destroyFence(self.device, frame.render_fence, null);
-        vk.destroySemaphore(self.device, frame.render_semaphore, null);
-        vk.destroySemaphore(self.device, frame.swapchain_semaphore, null);
-    }
-
-    vk.destroySwapchainKHR(self.device, self.swapchain, null);
-    for (self.swapchain_image_views.items) |image_view| {
-        vk.destroyImageView(self.device, image_view, null);
-    }
-    vk.destroySurfaceKHR(self.instance, self.surface, null);
-    vk.destroyDevice(self.device, null);
-    if (vk.enable_validation_layers) {
-        vk.destroyDebugUtilsMessengerEXT(self.instance, self.debug_messenger, null);
-    }
-    vk.destroyInstance(self.instance, null);
 }
