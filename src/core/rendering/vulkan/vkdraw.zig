@@ -7,7 +7,6 @@ const math = core.math;
 const vk = @import("vulkan.zig");
 const common = @import("common.zig");
 const resources = @import("resources.zig");
-const descriptors = @import("descriptors.zig");
 const GraphicsShader = @import("shader.zig").GraphicsShader;
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
@@ -46,6 +45,7 @@ pub inline fn transitionImage(
     });
 }
 
+// TODO have this in game code or at least partially
 pub fn graphics(
     cmd: c.VkCommandBuffer,
     draw_extent: c.VkExtent2D,
@@ -116,15 +116,20 @@ pub fn graphics(
         },
     });
 
+    // vk.cmdBindDescriptorSets
+
     // rasterization state
     vk.cmdSetPolygonModeEXT(cmd, c.VK_POLYGON_MODE_FILL);
-    vk.cmdSetFrontFaceEXT(cmd, c.VK_FRONT_FACE_CLOCKWISE);
+    vk.cmdSetLineWidth(cmd, 1.0);
     vk.cmdSetCullModeEXT(cmd, c.VK_CULL_MODE_BACK_BIT);
-    vk.cmdSetRasterizerDiscardEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetFrontFaceEXT(cmd, c.VK_FRONT_FACE_CLOCKWISE);
     vk.cmdSetDepthBiasEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetRasterizerDiscardEnableEXT(cmd, c.VK_FALSE);
 
+    // multisample state
     vk.cmdSetSampleMaskEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT, &[1]c.VkSampleMask{0xffffffff});
     vk.cmdSetRasterizationSamplesEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT);
+
     vk.cmdSetAlphaToCoverageEnableEXT(cmd, c.VK_FALSE);
     vk.cmdSetAlphaToOneEnableEXT(cmd, c.VK_FALSE);
 
@@ -144,11 +149,28 @@ pub fn graphics(
     vk.cmdSetColorBlendEquationEXT(cmd, 0, 1, &c.VkColorBlendEquationEXT{});
 
     // depth stencil state
-    vk.cmdSetDepthBoundsTestEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetStencilTestEnableEXT(cmd, c.VK_FALSE);
     vk.cmdSetDepthTestEnableEXT(cmd, c.VK_TRUE);
     vk.cmdSetDepthWriteEnableEXT(cmd, c.VK_TRUE);
     vk.cmdSetDepthCompareOpEXT(cmd, c.VK_COMPARE_OP_LESS);
+    vk.cmdSetDepthBoundsTestEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetStencilTestEnableEXT(cmd, c.VK_FALSE);
+    vk.cmdSetStencilOpEXT(
+        cmd,
+        c.VK_STENCIL_FACE_FRONT_BIT,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_COMPARE_OP_NEVER,
+    );
+    vk.cmdSetStencilOpEXT(
+        cmd,
+        c.VK_STENCIL_FACE_BACK_BIT,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_STENCIL_OP_KEEP,
+        c.VK_COMPARE_OP_NEVER,
+    );
+    vk.cmdSetDepthBounds(cmd, 0.0, 1.0);
 
     vk.cmdPushConstants(
         cmd,

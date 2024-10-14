@@ -33,40 +33,40 @@ pub const Vec2 = extern struct {
         return new(1.0, 0.0);
     }
 
-    pub inline fn add(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x + other.x, self.y + other.y);
+    pub inline fn add(a: Vec2, b: Vec2) Vec2 {
+        return new(a.x + b.x, a.y + b.y);
     }
 
-    pub inline fn sub(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x - other.x, self.y - other.y);
+    pub inline fn sub(a: Vec2, b: Vec2) Vec2 {
+        return new(a.x - b.x, a.y - b.y);
     }
 
-    pub inline fn mul(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x * other.x, self.y * other.y);
+    pub inline fn mul(a: Vec2, b: Vec2) Vec2 {
+        return new(a.x * b.x, a.y * b.y);
     }
 
-    pub inline fn div(self: Vec2, other: Vec2) Vec2 {
-        return new(self.x / other.x, self.y / other.y);
+    pub inline fn mulf(a: Vec2, b: f32) Vec2 {
+        return new(a.x * b, a.y * b);
     }
 
-    pub inline fn magSq(self: Vec2) f32 {
-        return self.x * self.x + self.y * self.y;
+    pub inline fn div(a: Vec2, b: Vec2) Vec2 {
+        return new(a.x / b.x, a.y / b.y);
+    }
+
+    pub inline fn dot(a: Vec2, b: Vec2) f32 {
+        return (a.x * b.x) + (a.y * b.y);
+    }
+
+    pub inline fn magSqr(self: Vec2) f32 {
+        return self.dot(self);
     }
 
     pub inline fn mag(self: Vec2) f32 {
-        return std.math.sqrt(self.magSq());
+        return @sqrt(self.magSqr());
     }
 
-    pub inline fn normalize(self: *Vec2) void {
-        const m = self.mag();
-        self.x /= m;
-        self.y /= m;
-    }
-
-    pub inline fn normalized(self: Vec2) Vec2 {
-        var v = self;
-        v.normalize();
-        return v;
+    pub inline fn norm(self: Vec2) Vec2 {
+        return self.mulf(1.0 / self.mag());
     }
 
     pub inline fn approxEq(self: Vec2, other: Vec2, tolerance: f32) bool {
@@ -79,7 +79,7 @@ pub const Vec2 = extern struct {
         return true;
     }
 
-    pub inline fn dist(self: Vec2, other: Vec2) f32 {
-        return self.sub(other).mag();
+    pub inline fn dist(a: Vec2, b: Vec2) f32 {
+        return a.sub(b).mag();
     }
 };

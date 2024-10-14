@@ -2,8 +2,11 @@ const std = @import("std");
 const gg = @import("gargoyle");
 const Window = gg.platform.Window;
 
-export fn ggCreate(window: Window) callconv(.C) *gg.Engine {
+export fn ggStart(window: Window) callconv(.C) *gg.Engine {
     return gg.Engine.create(window) catch |err| {
+        if (@errorReturnTrace()) |t| {
+            std.debug.dumpStackTrace(t.*);
+        }
         std.debug.panic("failed to create engine. err: {}\n", .{err});
     };
 }

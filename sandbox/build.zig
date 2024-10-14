@@ -11,7 +11,12 @@ pub fn build(b: *std.Build) void {
 
     gargoyle.addAsset(b, .{
         .name = "basicmesh.glb",
-        .file = b.path("basicmesh.glb"),
+        .file = b.path("assets/basicmesh.glb"),
+    });
+
+    gargoyle.addAsset(b, .{
+        .name = "avocado.glb",
+        .file = b.path("assets/avocado.glb"),
     });
 
     try gargoyle.buildWin32(b, .{

@@ -1,15 +1,97 @@
 const std = @import("std");
+
 const c = @import("c");
-const Window = @import("root.zig").Window;
+const platform = @import("root.zig");
+const Input = platform.Input;
+const Window = platform.Window;
 const WINAPI = std.os.windows.WINAPI;
 
-const GGInstance = opaque {};
-var ggCreate: *const fn (Window) callconv(.C) *GGInstance = undefined;
-var ggUpdate: *const fn (*GGInstance) callconv(.C) u32 = undefined;
-var ggShutdown: *const fn (*GGInstance) callconv(.C) void = undefined;
+const Engine = opaque {};
+var ggStart: *const fn (Window) callconv(.C) *Engine = undefined;
+var ggUpdate: *const fn (*Engine) callconv(.C) u32 = undefined;
+var ggShutdown: *const fn (*Engine) callconv(.C) void = undefined;
 
-pub export fn WindowProc(hwnd: c.HWND, uMsg: c_uint, wParam: c.WPARAM, lParam: c.LPARAM) callconv(WINAPI) c.LRESULT {
-    _ = switch (uMsg) {
+var input: Input = undefined;
+
+// TODO proper error handling
+pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param: c.LPARAM) callconv(WINAPI) c.LRESULT {
+    _ = switch (u_msg) {
+        c.WM_KEYDOWN => {
+            if (Input.KB.toKeyCode(@intCast(w_param))) |key_code| {
+                input.kb.events.put(key_code, .down) catch {};
+                input.kb.keys.put(key_code, true) catch {};
+            } else |err| {
+                std.log.debug("{}", .{err});
+            }
+        },
+        c.WM_KEYUP => {
+            if (Input.KB.toKeyCode(@intCast(w_param))) |key_code| {
+                input.kb.events.put(key_code, .up) catch {};
+                input.kb.keys.put(key_code, false) catch {};
+            } else |err| {
+                std.log.debug("{}", .{err});
+            }
+        },
+
+        c.WM_MOUSEMOVE => {
+            const xy: i32 = @intCast(l_param);
+            const y: i16 = @intCast(xy >> 16);
+            const x: i16 = @truncate(xy);
+
+            input.mouse.pos = .{
+                .x = @max(0, x),
+                .y = @max(0, y),
+            };
+        },
+
+        c.WM_MOUSEHOVER => {},
+        c.WM_MOUSEHWHEEL => {},
+
+        c.WM_LBUTTONUP => {
+            input.mouse.setButtonUp(.left) catch {};
+        },
+        c.WM_LBUTTONDOWN => {
+            input.mouse.setButtonDown(.left) catch {};
+        },
+        c.WM_RBUTTONUP => {
+            input.mouse.setButtonUp(.right) catch {};
+        },
+        c.WM_RBUTTONDOWN => {
+            input.mouse.setButtonDown(.right) catch {};
+        },
+        c.WM_MBUTTONUP => {
+            input.mouse.setButtonUp(.middle) catch {};
+        },
+        c.WM_MBUTTONDOWN => {
+            input.mouse.setButtonDown(.middle) catch {};
+        },
+        c.WM_XBUTTONUP => {
+            var num: u32 = @intCast(w_param);
+            num >>= 16;
+            switch (num) {
+                c.XBUTTON1 => {
+                    input.mouse.setButtonUp(.extra1) catch {};
+                },
+                c.XBUTTON2 => {
+                    input.mouse.setButtonUp(.extra2) catch {};
+                },
+                else => unreachable,
+            }
+        },
+        c.WM_XBUTTONDOWN => {
+            var num: u32 = @intCast(w_param);
+            num >>= 16;
+            switch (num) {
+                c.XBUTTON1 => {
+                    input.mouse.setButtonDown(.extra1) catch {};
+                },
+                c.XBUTTON2 => {
+                    input.mouse.setButtonDown(.extra2) catch {};
+                },
+                else => unreachable,
+            }
+        },
+
         c.WM_ERASEBKGND,
         c.WM_NCACTIVATE,
         c.WM_NCPAINT,
@@ -20,7 +102,7 @@ pub export fn WindowProc(hwnd: c.HWND, uMsg: c_uint, wParam: c.WPARAM, lParam: c
             // std.log.warn("Unknown window message: 0x{x:0>4}\n", .{uMsg});
         },
     };
-    return c.DefWindowProcA(hwnd, uMsg, wParam, lParam);
+    return c.DefWindowProcA(hwnd, u_msg, w_param, l_param);
 }
 
 pub export fn WinMain(
@@ -38,6 +120,10 @@ pub export fn wWinMain(
     _: std.os.windows.PWSTR,
     _: std.os.windows.INT,
 ) callconv(WINAPI) std.os.windows.INT {
+    var input_buf: [16 * 1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&input_buf);
+    input = Input.init(fba.allocator());
+
     const hinstance: c.HINSTANCE = @ptrCast(@alignCast(_hInstance));
 
     var class = std.mem.zeroes(c.WNDCLASSEXA);
@@ -77,8 +163,8 @@ pub export fn wWinMain(
         std.log.err("failed to load gargoyle.dll. err: {}\n", .{err});
         return 1;
     };
-    ggCreate = dyn_lib.lookup(@TypeOf(ggCreate), "ggCreate") orelse {
-        std.log.err("failed to load ggCreate function. \n", .{});
+    ggStart = dyn_lib.lookup(@TypeOf(ggStart), "ggStart") orelse {
+        std.log.err("failed to load ggStart function. \n", .{});
         return 1;
     };
     ggUpdate = dyn_lib.lookup(@TypeOf(ggUpdate), "ggUpdate") orelse {
@@ -95,13 +181,15 @@ pub export fn wWinMain(
         .hinstance = hinstance,
         .width = @intCast(screen_width),
         .height = @intCast(screen_height),
+        .input = &input,
     };
-    const gg = ggCreate(window);
-    defer ggShutdown(gg);
+    const engine = ggStart(window);
+    defer ggShutdown(engine);
 
     var msg: c.MSG = std.mem.zeroes(c.MSG);
-
     while (true) {
+        input.kb.events.clearRetainingCapacity();
+        input.mouse.events.clearRetainingCapacity();
         while (c.PeekMessageA(&msg, null, 0, 0, c.PM_NOREMOVE) == c.TRUE) {
             if (c.GetMessageA(&msg, null, 0, 0) > 0) {
                 _ = c.TranslateMessage(&msg);
@@ -110,7 +198,8 @@ pub export fn wWinMain(
                 return 1;
             }
         }
-        const r = ggUpdate(gg);
+
+        const r = ggUpdate(engine);
         switch (r) {
             0 => {},
             1 => return 0,

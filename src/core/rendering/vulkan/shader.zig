@@ -8,7 +8,7 @@ pub const GraphicsShader = struct {
     fs: c.VkShaderEXT,
     layout: c.VkPipelineLayout,
 
-    pub fn bind(self: GraphicsShader, cmd: c.VkCommandBuffer) void {
+    pub inline fn bind(self: GraphicsShader, cmd: c.VkCommandBuffer) void {
         vk.cmdBindShadersEXT(
             cmd,
             4,

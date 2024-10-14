@@ -18,25 +18,40 @@ pub const Vec3 = extern struct {
         return new(0.0, 0.0, 0.0);
     }
 
+    pub inline fn up() Vec3 {
+        return new(0.0, 1.0, 0.0);
+    }
+
+    pub inline fn down() Vec3 {
+        return new(0.0, -1.0, 0.0);
+    }
+
+    pub inline fn left() Vec3 {
+        return new(-1.0, 0.0, 0.0);
+    }
+
+    pub inline fn right() Vec3 {
+        return new(1.0, 0.0, 0.0);
+    }
+
+    pub inline fn forward() Vec3 {
+        return new(0.0, 0.0, 1.0);
+    }
+
+    pub inline fn backward() Vec3 {
+        return new(0.0, 0.0, -1.0);
+    }
+
     pub inline fn magSqr(self: Vec3) f32 {
-        return self.x * self.x + self.y * self.y + self.z * self.z;
+        return self.dot(self);
     }
 
     pub inline fn mag(self: Vec3) f32 {
         return @sqrt(self.magSqr());
     }
 
-    pub inline fn normalize(self: *Vec3) void {
-        const len = self.mag();
-        self.x /= len;
-        self.y /= len;
-        self.z /= len;
-    }
-
-    pub inline fn normalized(self: Vec3) Vec3 {
-        var n = self;
-        n.normalize();
-        return n;
+    pub inline fn norm(self: Vec3) Vec3 {
+        return self.mulf(1.0 / self.mag());
     }
 
     pub inline fn add(a: Vec3, b: Vec3) Vec3 {
@@ -53,6 +68,14 @@ pub const Vec3 = extern struct {
 
     pub inline fn mulf(a: Vec3, b: f32) Vec3 {
         return new(a.x * b, a.y * b, a.z * b);
+    }
+
+    pub inline fn div(a: Vec3, b: Vec3) Vec3 {
+        return new(a.x / b.x, a.y / b.y, a.z / b.z);
+    }
+
+    pub inline fn divf(a: Vec3, b: f32) Vec3 {
+        return new(a.x / b, a.y / b, a.z / b);
     }
 
     pub inline fn dot(a: Vec3, b: Vec3) f32 {

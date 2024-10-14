@@ -2,6 +2,11 @@ const std = @import("std");
 const c = @import("c");
 const vk = @import("vulkan.zig");
 
+// TODO create 1 pool per memory type
+// easiest solution to avoid fragmentation is
+// to do page allocation and have each resource use one or more pages
+// even if the page is larger that what is necessary
+
 // pub const Pool = struct {
 //     device: c.VkDevice,
 //
@@ -18,3 +23,11 @@ const vk = @import("vulkan.zig");
 //         }, null, &new_buffer.memory));
 //     }
 // };
+//
+
+// 128MB jumps per pool
+pub const BufferPool = struct {
+    fn createBuffer(self: BufferPool) void {
+        _ = self;
+    }
+};

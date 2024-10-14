@@ -1,6 +1,15 @@
 const c = @import("c");
 const vk = @import("vulkan.zig");
 
+pub const Texture2D = struct {
+    extent: c.VkExtent2D,
+    format: c.VkFormat,
+    image: c.VkImage,
+    view: c.VkImageView,
+    sampler: c.VkSampler,
+    memory: c.VkDeviceMemory,
+};
+
 pub const Buffer = struct {
     size: usize,
     buffer: c.VkBuffer,
@@ -9,16 +18,13 @@ pub const Buffer = struct {
 
 pub fn createBuffer(
     device: c.VkDevice,
-    args: struct {
-        size: usize,
-        usage: c.VkBufferUsageFlags,
-        buf_mem_props: c.VkMemoryPropertyFlags,
-        gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
-        alloc_flags: ?c.VkMemoryAllocateFlagsInfo = null,
-    },
+    mem_props: c.VkPhysicalDeviceMemoryProperties,
+    size: usize,
+    usage: c.VkBufferUsageFlags,
+    mem_flags: c.VkMemoryPropertyFlags,
 ) !Buffer {
     var new_buffer = Buffer{
-        .size = args.size,
+        .size = size,
         .buffer = undefined,
         .memory = undefined,
     };
@@ -27,8 +33,8 @@ pub fn createBuffer(
         device,
         &c.VkBufferCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = @intCast(args.size),
-            .usage = args.usage,
+            .size = @intCast(size),
+            .usage = usage,
             .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
         },
         null,
@@ -40,12 +46,18 @@ pub fn createBuffer(
 
     try vk.check(vk.allocateMemory(device, &c.VkMemoryAllocateInfo{
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = if (args.alloc_flags) |alloc_flags| @ptrCast(&alloc_flags) else null,
+        .pNext = if (usage & c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT != 0)
+            &c.VkMemoryAllocateFlagsInfo{
+                .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+                .flags = c.VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+            }
+        else
+            null,
         .allocationSize = req.size,
         .memoryTypeIndex = try findMemoryType(
-            args.gpu_mem_props,
+            mem_props,
             req.memoryTypeBits,
-            args.buf_mem_props,
+            mem_flags,
         ),
     }, null, &new_buffer.memory));
 
@@ -64,18 +76,16 @@ pub const Image = struct {
 // todo support creating many at once
 pub fn createImage(
     device: c.VkDevice,
-    args: struct {
-        format: c.VkFormat,
-        extent: c.VkExtent3D,
-        usage_flags: c.VkImageUsageFlags,
-        aspect_flags: c.VkImageAspectFlags,
-        gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
-        image_mem_props: c.VkMemoryPropertyFlags,
-    },
+    format: c.VkFormat,
+    extent: c.VkExtent3D,
+    usage_flags: c.VkImageUsageFlags,
+    aspect_flags: c.VkImageAspectFlags,
+    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    image_mem_props: c.VkMemoryPropertyFlags,
 ) !Image {
     var new_image = Image{
-        .format = args.format,
-        .extent = args.extent,
+        .format = format,
+        .extent = extent,
         .image = undefined,
         .memory = undefined,
         .view = undefined,
@@ -86,13 +96,13 @@ pub fn createImage(
         &c.VkImageCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
-            .format = args.format,
-            .extent = args.extent,
+            .format = format,
+            .extent = extent,
             .mipLevels = 1,
             .arrayLayers = 1,
             .samples = c.VK_SAMPLE_COUNT_1_BIT,
             .tiling = c.VK_IMAGE_TILING_OPTIMAL,
-            .usage = args.usage_flags,
+            .usage = usage_flags,
         },
         null,
         &new_image.image,
@@ -105,9 +115,9 @@ pub fn createImage(
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = req.size,
         .memoryTypeIndex = try findMemoryType(
-            args.gpu_mem_props,
+            gpu_mem_props,
             req.memoryTypeBits,
-            args.image_mem_props,
+            image_mem_props,
         ),
     }, null, &new_image.memory));
 
@@ -119,13 +129,13 @@ pub fn createImage(
             .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
             .image = new_image.image,
-            .format = args.format,
+            .format = format,
             .subresourceRange = .{
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
-                .aspectMask = args.aspect_flags,
+                .aspectMask = aspect_flags,
             },
         },
         null,

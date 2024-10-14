@@ -1,22 +1,34 @@
 const std = @import("std");
+const c = @import("c");
+const vk = @import("vulkan.zig");
+
+const resources = @import("resources.zig");
+const ImmediateCommand = @import("ImmediateCommand.zig");
 const core = @import("../../root.zig");
 const math = core.math;
 const gltf = core.loading.gltf;
+const png = core.loading.png;
 
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
-pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh {
-    const glb = try gltf.load(path, renderer.arena);
+pub fn loadGltfMeshes(
+    gpa: std.mem.Allocator,
+    arena: std.mem.Allocator,
+    path: []const u8,
+    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    imm_cmd: ImmediateCommand,
+) !struct { []types.Mesh, []resources.Texture2D } {
+    const glb = try gltf.load(path, arena);
     const accessors = glb.gltf.accessors orelse return error.InvalidGltf;
     const gltf_meshes = glb.gltf.meshes orelse return error.InvalidGltf;
     const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
     const bin = glb.bin orelse return error.InvalidGltf;
 
-    var indices = std.ArrayList(u32).init(renderer.arena);
-    var vertices = std.ArrayList(types.Vertex).init(renderer.arena);
+    var indices = std.ArrayList(u32).init(arena);
+    var vertices = std.ArrayList(types.Vertex).init(arena);
 
-    const meshes = try renderer.gpa.alloc(types.Mesh, gltf_meshes.len);
+    const meshes = try gpa.alloc(types.Mesh, gltf_meshes.len);
     for (gltf_meshes, meshes) |gltf_mesh, *mesh| {
         indices.clearRetainingCapacity();
         vertices.clearRetainingCapacity();
@@ -38,6 +50,7 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
                 const component_size = idx_acc.componentType.size();
                 var k: usize = 0;
                 for (0..idx_count) |j| {
+                    // TODO switch outside of loop
                     idx_slice[j] = switch (idx_acc.componentType) {
                         .unsigned_byte => @intCast(@as(*const u8, @ptrCast(@alignCast(&idx_data[k]))).*),
                         .unsigned_short => @intCast(@as(*const u16, @ptrCast(@alignCast(&idx_data[k]))).*),
@@ -51,6 +64,7 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
 
             const pos_acc = accessors[p.findAttribute("POSITION") orelse return error.InvalidGltf];
             const normal_acc = if (p.findAttribute("NORMAL")) |attr| accessors[attr] else null;
+            const tangent_acc = if (p.findAttribute("TANGENT")) |attr| accessors[attr] else null;
             const texcoord_acc = if (p.findAttribute("TEXCOORD_0")) |attr| accessors[attr] else null;
             const color_acc = if (p.findAttribute("COLOR_0")) |attr| accessors[attr] else null;
 
@@ -72,6 +86,13 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
                     @memcpy(std.mem.asBytes(&vertex.normal), normals);
                 } else {
                     vertex.normal = math.vec3(1, 0, 0);
+                }
+
+                if (tangent_acc) |acc| {
+                    const tangent = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.tangent)));
+                    @memcpy(std.mem.asBytes(&vertex.tangent), tangent);
+                } else {
+                    vertex.tangent = math.vec4(0, 0, 0, 1);
                 }
 
                 if (texcoord_acc) |acc| {
@@ -106,7 +127,237 @@ pub fn loadGltfMeshes(renderer: *VulkanRenderer, path: []const u8) ![]types.Mesh
             vtx.color = math.color4(vtx.normal.x, vtx.normal.y, vtx.normal.z, 1.0);
         }
 
-        mesh.* = try renderer.uploadMesh(indices.items, vertices.items);
+        mesh.* = try uploadMesh(indices.items, vertices.items, gpu_mem_props, imm_cmd);
     }
-    return meshes;
+
+    const out_textures = try gpa.alloc(resources.Texture2D, 1);
+    // const out_textures = try gpa.alloc(resources.Texture2D, glb.gltf.textures.?.len);
+    // for (glb.gltf.textures.?, out_textures) |tex, *out_tex| {
+    //     out_tex.* = resources.Texture2D{
+    //         .view = undefined,
+    //         .image = undefined,
+    //         .extent = undefined,
+    //         .format = undefined,
+    //         .memory = undefined,
+    //         .sampler = undefined,
+    //     };
+    //     if (tex.sampler) |s| {
+    //         const sampler = glb.gltf.samplers.?[s];
+    //
+    //         var sampler_info = c.VkSamplerCreateInfo{
+    //             .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    //             .addressModeU = vkWrapMode(sampler.wrapS),
+    //             .addressModeV = vkWrapMode(sampler.wrapT),
+    //         };
+    //
+    //         if (sampler.magFilter) |mag| {
+    //             sampler_info.magFilter = switch (mag) {
+    //                 .nearest => c.VK_FILTER_NEAREST,
+    //                 .linear => c.VK_FILTER_LINEAR,
+    //             };
+    //         }
+    //         if (sampler.minFilter) |min| {
+    //             switch (min) {
+    //                 .linear => {
+    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
+    //                 },
+    //                 .linear_mipmap_linear => {
+    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
+    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    //                 },
+    //                 .linear_mipmap_nearest => {
+    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
+    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    //                 },
+    //                 .nearest => {
+    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
+    //                 },
+    //                 .nearest_mipmap_linear => {
+    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
+    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    //                 },
+    //                 .nearest_mipmap_nearest => {
+    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
+    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    //                 },
+    //             }
+    //         }
+    //
+    //         _ = vk.createSampler(imm_cmd.device, &sampler_info, null, &out_tex.sampler);
+    //     }
+    //     if (tex.source) |s| {
+    //         const image = glb.gltf.images.?[s];
+    //         const buffer_view_idx = image.bufferView orelse return error.InvalidGltf;
+    //         const buffer_view = buffer_views[buffer_view_idx];
+    //         const data_offset = buffer_view.byteOffset;
+    //         const data_len = buffer_view.byteLength;
+    //         const image_data = bin[data_offset..(data_offset + data_len)];
+    //         const png_data = try png.fromBuffer(arena, image_data);
+    //         const vk_image = try resources.createImage(
+    //             imm_cmd.device,
+    //             if (png_data.header.bit_depth > 8)
+    //                 c.VK_FORMAT_R16G16B16A16_UNORM
+    //             else
+    //                 c.VK_FORMAT_R8G8B8A8_UNORM,
+    //             c.VkExtent3D{
+    //                 .width = png_data.header.width,
+    //                 .height = png_data.header.height,
+    //                 .depth = 1,
+    //             },
+    //             c.VK_IMAGE_ASPECT_COLOR_BIT,
+    //             c.VK_IMAGE_USAGE_SAMPLED_BIT,
+    //             gpu_mem_props,
+    //             c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    //         );
+    //         out_tex.memory = vk_image.memory;
+    //         out_tex.format = vk_image.format;
+    //         out_tex.extent = c.VkExtent2D{
+    //             .width = vk_image.extent.width,
+    //             .height = vk_image.extent.height,
+    //         };
+    //         out_tex.image = vk_image.image;
+    //         out_tex.view = vk_image.view;
+    //     }
+    // }
+    return .{ meshes, out_textures };
+}
+
+fn uploadMesh(
+    indices: []const u32,
+    vertices: []const types.Vertex,
+    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    imm_cmd: ImmediateCommand,
+) !types.Mesh {
+    const device = imm_cmd.device;
+    const vb_size = vertices.len * @sizeOf(types.Vertex);
+    const ib_size = indices.len * @sizeOf(u32);
+
+    var mesh: types.Mesh = undefined;
+    mesh.vertex_buffer = try resources.createBuffer(
+        device,
+        gpu_mem_props,
+        vb_size,
+        c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    );
+
+    var min_x = math.inf(f32);
+    var min_y = math.inf(f32);
+    var min_z = math.inf(f32);
+
+    var max_x = -math.inf(f32);
+    var max_y = -math.inf(f32);
+    var max_z = -math.inf(f32);
+
+    for (vertices) |vert| {
+        const pos = vert.position;
+        if (pos.x < min_x) {
+            min_x = pos.x;
+        }
+        if (pos.y < min_y) {
+            min_y = pos.y;
+        }
+        if (pos.z < min_z) {
+            min_z = pos.z;
+        }
+        if (pos.x > max_x) {
+            max_x = pos.x;
+        }
+        if (pos.y > max_y) {
+            max_y = pos.y;
+        }
+        if (pos.z > max_z) {
+            max_z = pos.z;
+        }
+    }
+
+    const min = math.vec3(min_x, min_y, min_z);
+    const max = math.vec3(max_x, max_y, max_z);
+    mesh.bounds = .{
+        .min = min,
+        .max = max,
+        .center = min.add(max).divf(2),
+    };
+
+    mesh.vb_addr = vk.getBufferDeviceAddress(
+        device,
+        &c.VkBufferDeviceAddressInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = mesh.vertex_buffer.buffer,
+        },
+    );
+
+    mesh.index_buffer = try resources.createBuffer(
+        device,
+        gpu_mem_props,
+        ib_size,
+        c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    );
+
+    const staging = try resources.createBuffer(
+        device,
+        gpu_mem_props,
+        vb_size + ib_size,
+        c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    );
+
+    // TODO allocate larger chunks of memory at once and use offsets
+    var data: [*]u8 = undefined;
+    try vk.check(vk.mapMemory(device, staging.memory, 0, vb_size + ib_size, 0, @ptrCast(&data)));
+    @memcpy(data, std.mem.sliceAsBytes(vertices));
+    @memcpy(data[vb_size..], std.mem.sliceAsBytes(indices));
+    vk.unmapMemory(device, staging.memory);
+
+    const C = struct {
+        vertex_buffer: c.VkBuffer,
+        vb_size: usize,
+        index_buffer: c.VkBuffer,
+        ib_size: usize,
+        staging_buffer: c.VkBuffer,
+
+        pub fn submit(this: @This(), cmd: c.VkCommandBuffer) void {
+            const vertex_copy = c.VkBufferCopy{
+                .dstOffset = 0,
+                .srcOffset = 0,
+                .size = this.vb_size,
+            };
+
+            vk.cmdCopyBuffer(cmd, this.staging_buffer, this.vertex_buffer, 1, &vertex_copy);
+
+            const index_copy = c.VkBufferCopy{
+                .dstOffset = 0,
+                .srcOffset = this.vb_size,
+                .size = this.ib_size,
+            };
+
+            vk.cmdCopyBuffer(cmd, this.staging_buffer, this.index_buffer, 1, &index_copy);
+        }
+    };
+
+    try imm_cmd.submit(&C{
+        .vertex_buffer = mesh.vertex_buffer.buffer,
+        .vb_size = vb_size,
+        .index_buffer = mesh.index_buffer.buffer,
+        .ib_size = ib_size,
+        .staging_buffer = staging.buffer,
+    });
+
+    vk.destroyBuffer(device, staging.buffer, null);
+    vk.freeMemory(device, staging.memory, null);
+
+    return mesh;
+}
+
+pub fn vkWrapMode(self: gltf.Sampler.WrapMode) c.VkSamplerAddressMode {
+    return switch (self) {
+        .repeat => c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .clamp_to_edge => c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .mirrored_repeat => c.VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+    };
 }

@@ -104,8 +104,8 @@ pub const Mat4 = extern union {
     }
 
     pub inline fn lookAt(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
-        const f = center.sub(eye).normalized();
-        const s = up.cross(f).normalized();
+        const f = center.sub(eye).norm();
+        const s = up.cross(f).norm();
         const u = f.cross(s);
 
         var out_matrix: Mat4 = undefined;
@@ -131,6 +131,10 @@ pub const Mat4 = extern union {
         out_matrix.elements[15] = 1.0;
 
         return out_matrix;
+    }
+
+    pub inline fn transform(pos: Vec3, rot: Quat, scale: Vec3) Mat4 {
+        return scaling(scale).mul(rotation(rot)).mul(translation(pos));
     }
 
     pub inline fn translation(position: Vec3) Mat4 {

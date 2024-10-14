@@ -3,96 +3,114 @@ const Vec3 = @import("vec3.zig").Vec3;
 const Vec4 = @import("vec4.zig").Vec4;
 const f32x4 = @Vector(4, f32);
 const i32x4 = @Vector(4, i32);
+const u32x4 = @Vector(4, u32);
 
 pub const Quat = extern union {
-    elements: extern struct {
+    const Elements = extern struct {
+        w: f32,
         x: f32,
         y: f32,
         z: f32,
-        w: f32,
-    },
+    };
+    elements: Elements,
     simd: f32x4,
 
-    pub inline fn new(x: f32, y: f32, z: f32, w: f32) Quat {
-        return Quat{ .elements = .{ .x = x, .y = y, .z = z, .w = w } };
+    pub inline fn new(w: f32, x: f32, y: f32, z: f32) Quat {
+        return Quat{ .elements = .{ .w = w, .x = x, .y = y, .z = z } };
     }
 
     pub inline fn identity() Quat {
-        return new(0, 0, 0, 1.0);
+        return new(1.0, 0, 0, 0);
     }
 
-    pub inline fn normalize(q: Quat) Quat {
-        const v4 = (Vec4{ .simd = q.simd }).norm();
-        return .{ .simd = v4.simd };
+    pub inline fn norm(q: Quat) Quat {
+        const v4: Vec4 = @bitCast(q);
+        return @bitCast(v4.norm());
+    }
+
+    pub inline fn add(left: Quat, right: Quat) Quat {
+        return Quat{ .simd = left.simd + right.simd };
+    }
+
+    pub inline fn sub(left: Quat, right: Quat) Quat {
+        return Quat{ .simd = left.simd - right.simd };
+    }
+
+    pub inline fn mulf(left: Quat, scalar: f32) Quat {
+        return Quat{ .simd = left.simd * @as(f32x4, @splat(scalar)) };
+    }
+
+    pub inline fn divf(left: Quat, scalar: f32) Quat {
+        return Quat{ .simd = left.simd / @as(f32x4, @splat(scalar)) };
     }
 
     pub inline fn mul(left: Quat, right: Quat) Quat {
-        var simd_res_one = @shuffle(f32, left.simd, undefined, @as(i32x4, @splat(0))) ^ f32x4{ 0.0, -0.0, 0.0, -0.0 };
-        var simd_res_two = @shuffle(f32, right.simd, undefined, i32x4{ 0, 1, 2, 3 });
-        var simd_res_three = simd_res_two * simd_res_one;
-
-        simd_res_one = @shuffle(f32, left.simd, undefined, @as(i32x4, @splat(1))) ^ f32x4{ 0.0, -0.0, 0.0, -0.0 };
-        simd_res_two = @shuffle(f32, right.simd, undefined, i32x4{ 1, 0, 3, 2 });
-        simd_res_three = simd_res_two * simd_res_one;
-
-        simd_res_one = @shuffle(f32, left.simd, undefined, @as(i32x4, @splat(2))) ^ f32x4{ 0.0, -0.0, 0.0, -0.0 };
-        simd_res_two = @shuffle(f32, right.simd, undefined, i32x4{ 2, 3, 0, 1 });
-        simd_res_three = simd_res_two * simd_res_one;
-
-        simd_res_one = @shuffle(f32, left.simd, undefined, @as(i32x4, @splat(3))) ^ f32x4{ 0.0, -0.0, 0.0, -0.0 };
-        simd_res_two = @shuffle(f32, right.simd, undefined, i32x4{ 3, 2, 1, 0 });
-        simd_res_three = simd_res_two * simd_res_one;
-
-        return Quat{ .simd = simd_res_three + (simd_res_two * simd_res_one) };
+        return Quat{
+            .simd = mulCol(left.simd, right.simd, 0, @splat(0), u32x4{ 0, 1, 2, 3 }) +
+                mulCol(left.simd, right.simd, 1, u32x4{ 0x80000000, 0, 0x80000000, 0 }, u32x4{ 1, 0, 3, 2 }) +
+                mulCol(left.simd, right.simd, 2, u32x4{ 0x80000000, 0, 0, 0x80000000 }, u32x4{ 2, 3, 0, 1 }) +
+                mulCol(left.simd, right.simd, 3, u32x4{ 0x80000000, 0x80000000, 0, 0 }, u32x4{ 3, 2, 1, 0 }),
+        };
     }
 
-    pub inline fn fromAxisAngle(axis: Vec3, _angle: f32) Quat {
-        const angle = _angle; // make left handed
+    inline fn mulCol(left: f32x4, right: f32x4, i: u32, xor: u32x4, mask: u32x4) f32x4 {
+        const r1: f32x4 = @bitCast(@shuffle(u32, @as(u32x4, @bitCast(left)), undefined, @as(u32x4, @splat(i))) ^ xor);
+        const r2: f32x4 = @shuffle(f32, right, undefined, mask);
+        return r1 * r2;
+    }
+
+    test mul {
+        const q0 = new(1.0, 2.0, 3.0, 4.0);
+        const q1 = new(4.0, 3.0, 2.0, 1.0);
+        const res = q0.mul(q1);
+
+        try std.testing.expectApproxEqAbs(-12.0, res.elements.w, 0.0001);
+        try std.testing.expectApproxEqAbs(6.0, res.elements.x, 0.0001);
+        try std.testing.expectApproxEqAbs(24.0, res.elements.y, 0.0001);
+        try std.testing.expectApproxEqAbs(12.0, res.elements.z, 0.0001);
+    }
+
+    pub inline fn fromAxisAngle(axis: Vec3, angle: f32) Quat {
         const sin_rot = @sin(angle * 0.5);
-        const xyz = axis.normalized().mulf(sin_rot);
+        const xyz = axis.norm().mulf(sin_rot);
 
         return new(
+            @cos(angle * 0.5),
             xyz.x,
             xyz.y,
             xyz.z,
-            @cos(angle * 0.5),
         );
     }
 
-    /// x/y/z = roll/pitch/yaw = phi/theta/psi = alpha/beta/gamma
-    pub inline fn euler(roll_rad: f32, pitch_rad: f32, yaw_rad: f32) Quat {
-        const half_roll = 0.5 * roll_rad;
-        const half_pitch = 0.5 * pitch_rad;
-        const half_yaw = 0.5 * yaw_rad;
+    pub inline fn euler(x: f32, y: f32, z: f32) Quat {
+        const half_x = 0.5 * x * std.math.rad_per_deg;
+        const half_y = 0.5 * y * std.math.rad_per_deg;
+        const half_z = 0.5 * z * std.math.rad_per_deg;
 
-        const cr = @cos(half_roll);
-        const sr = @sin(half_roll);
+        const cx = @cos(half_x);
+        const sx = @sin(half_x);
 
-        const cp = @cos(half_pitch);
-        const sp = @sin(half_pitch);
+        const cz = @cos(half_z);
+        const sz = @sin(half_z);
 
-        const cy = @cos(half_yaw);
-        const sy = @sin(half_yaw);
+        const cy = @cos(half_y);
+        const sy = @sin(half_y);
 
         return new(
-            sr * cp * cy + cr * sp * sy,
-            cr * sp * cy - sr * cp * sy,
-            cr * cp * sy + sr * sp * cy,
-            cr * cp * cy - sr * sp * sy,
+            cx * cy * cz + sx * sy * sz,
+            sx * cy * cz - cx * sy * sz,
+            cx * sy * cz + sx * cy * sz,
+            cx * cy * sz - sx * sy * cz,
         );
     }
 
     test euler {
-        const q = Quat.euler(
-            std.math.degreesToRadians(45),
-            std.math.degreesToRadians(90),
-            std.math.degreesToRadians(180),
-        ).elements;
+        const q = Quat.euler(45, 90, 180).elements;
 
-        try std.testing.expectApproxEqAbs(0.65328, q.x, 0.00001);
-        try std.testing.expectApproxEqAbs(-0.27060, q.y, 0.00001);
+        try std.testing.expectApproxEqAbs(-0.65328, q.x, 0.00001);
+        try std.testing.expectApproxEqAbs(0.27060, q.y, 0.00001);
         try std.testing.expectApproxEqAbs(0.65328, q.z, 0.00001);
-        try std.testing.expectApproxEqAbs(-0.27060, q.w, 0.00001);
+        try std.testing.expectApproxEqAbs(0.27060, q.w, 0.00001);
     }
 };
 

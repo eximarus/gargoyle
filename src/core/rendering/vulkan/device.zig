@@ -7,6 +7,7 @@ const required_device_extensions: []const c.String = &.{
 
     c.VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME,
     c.VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+    c.VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 
     c.VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
     c.VK_EXT_MESH_SHADER_EXTENSION_NAME,
@@ -50,9 +51,15 @@ pub fn create(
         .shaderObject = c.VK_TRUE,
     };
 
+    var descriptor_buffer = c.VkPhysicalDeviceDescriptorBufferFeaturesEXT{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT,
+        .pNext = &shader_obj,
+        .descriptorBuffer = c.VK_TRUE,
+    };
+
     var mesh_shader = c.VkPhysicalDeviceMeshShaderFeaturesEXT{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-        .pNext = &shader_obj,
+        .pNext = &descriptor_buffer,
         .meshShader = c.VK_TRUE,
         .taskShader = c.VK_TRUE,
     };
