@@ -1,6 +1,5 @@
 const std = @import("std");
 const f32x4 = @Vector(4, f32);
-const i32x4 = @Vector(4, i32);
 
 pub const vec4 = Vec4.new;
 
@@ -21,10 +20,6 @@ pub const Vec4 = extern union {
         return new(0.0, 0.0, 0.0, 1.0);
     }
 
-    pub inline fn dot(left: Vec4, right: Vec4) f32 {
-        return @reduce(.Add, left.simd * right.simd);
-    }
-
     pub inline fn add(left: Vec4, right: Vec4) Vec4 {
         return Vec4{ .simd = left.simd + right.simd };
     }
@@ -43,6 +38,14 @@ pub const Vec4 = extern union {
 
     pub inline fn div(left: Vec4, right: Vec4) Vec4 {
         return Vec4{ .simd = left.simd / right.simd };
+    }
+
+    pub inline fn divf(left: Vec4, right: f32) Vec4 {
+        return Vec4{ .simd = left.simd / @as(f32x4, @splat(right)) };
+    }
+
+    pub inline fn dot(left: Vec4, right: Vec4) f32 {
+        return @reduce(.Add, left.simd * right.simd);
     }
 
     pub inline fn magSqr(self: Vec4) f32 {

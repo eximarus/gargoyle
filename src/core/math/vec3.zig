@@ -42,18 +42,6 @@ pub const Vec3 = extern struct {
         return new(0.0, 0.0, -1.0);
     }
 
-    pub inline fn magSqr(self: Vec3) f32 {
-        return self.dot(self);
-    }
-
-    pub inline fn mag(self: Vec3) f32 {
-        return @sqrt(self.magSqr());
-    }
-
-    pub inline fn norm(self: Vec3) Vec3 {
-        return self.mulf(1.0 / self.mag());
-    }
-
     pub inline fn add(a: Vec3, b: Vec3) Vec3 {
         return new(a.x + b.x, a.y + b.y, a.z + b.z);
     }
@@ -82,6 +70,18 @@ pub const Vec3 = extern struct {
         return (a.x * b.x) +
             (a.y * b.y) +
             (a.z * b.z);
+    }
+
+    pub inline fn magSqr(self: Vec3) f32 {
+        return self.dot(self);
+    }
+
+    pub inline fn mag(self: Vec3) f32 {
+        return @sqrt(self.magSqr());
+    }
+
+    pub inline fn norm(self: Vec3) Vec3 {
+        return self.mulf(1.0 / self.mag());
     }
 
     pub inline fn cross(a: Vec3, b: Vec3) Vec3 {

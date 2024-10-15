@@ -305,6 +305,7 @@ pub inline fn result(r: c.VkResult) Result {
 //      'vkGetImageOpaqueCaptureDescriptorDataEXT',
 //      'vkGetImageViewOpaqueCaptureDescriptorDataEXT',
 //      'vkGetSamplerOpaqueCaptureDescriptorDataEXT',
+//      'vkCmdCopyBufferToImage',
 //  ]
 //  all = global_defs + instance_defs + device_defs
 //]]]
@@ -446,6 +447,7 @@ pub var getDescriptorSetLayoutSizeEXT: PFN(c.PFN_vkGetDescriptorSetLayoutSizeEXT
 pub var getImageOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetImageOpaqueCaptureDescriptorDataEXT) = undefined;
 pub var getImageViewOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetImageViewOpaqueCaptureDescriptorDataEXT) = undefined;
 pub var getSamplerOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetSamplerOpaqueCaptureDescriptorDataEXT) = undefined;
+pub var cmdCopyBufferToImage: PFN(c.PFN_vkCmdCopyBufferToImage) = undefined;
 //[[[end]]]
 
 pub fn loadGlobalFunctions() void {
@@ -606,5 +608,6 @@ pub fn loadDeviceFunctions(device: c.VkDevice) void {
     getDeviceProcAddr(device, "vkGetImageOpaqueCaptureDescriptorDataEXT");
     getDeviceProcAddr(device, "vkGetImageViewOpaqueCaptureDescriptorDataEXT");
     getDeviceProcAddr(device, "vkGetSamplerOpaqueCaptureDescriptorDataEXT");
+    getDeviceProcAddr(device, "vkCmdCopyBufferToImage");
     //[[[end]]]
 }

@@ -54,6 +54,8 @@ pub fn graphics(
     shader: GraphicsShader,
     push_constants: types.PushConstants,
     index_buffer: resources.Buffer,
+    descriptor_buffer: resources.Buffer,
+    descriptor_buffer_addr: c.VkDeviceAddress,
 ) void {
     vk.cmdBeginRendering(cmd, &c.VkRenderingInfo{
         .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
@@ -174,11 +176,29 @@ pub fn graphics(
 
     vk.cmdPushConstants(
         cmd,
-        shader.layout,
+        shader.pipeline_layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(types.PushConstants),
         &push_constants,
+    );
+
+    _ = descriptor_buffer;
+    vk.cmdBindDescriptorBuffersEXT(cmd, 1, &c.VkDescriptorBufferBindingInfoEXT{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
+        .usage = c.VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | c.VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT,
+        .address = descriptor_buffer_addr,
+    });
+
+    var buffer_offset: c.VkDeviceSize = 0;
+    vk.cmdSetDescriptorBufferOffsetsEXT(
+        cmd,
+        c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        shader.pipeline_layout,
+        0,
+        1,
+        &@as(u32, 0),
+        &buffer_offset,
     );
 
     vk.cmdBindIndexBuffer(cmd, index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);

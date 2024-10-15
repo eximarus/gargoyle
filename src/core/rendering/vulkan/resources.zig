@@ -1,12 +1,26 @@
+const std = @import("std");
 const c = @import("c");
 const vk = @import("vulkan.zig");
+const math = @import("../../root.zig").math;
+
+pub const Mesh = struct {
+    index_buffer: Buffer,
+    vertex_buffer: Buffer,
+    vb_addr: c.VkDeviceAddress,
+    name: ?[]const u8,
+    bounds: struct {
+        min: math.Vec3,
+        max: math.Vec3,
+        center: math.Vec3,
+    },
+};
 
 pub const Texture2D = struct {
     extent: c.VkExtent2D,
     format: c.VkFormat,
     image: c.VkImage,
     view: c.VkImageView,
-    sampler: c.VkSampler,
+    sampler: ?c.VkSampler,
     memory: c.VkDeviceMemory,
 };
 
@@ -14,6 +28,14 @@ pub const Buffer = struct {
     size: usize,
     buffer: c.VkBuffer,
     memory: c.VkDeviceMemory,
+};
+
+pub const Image = struct {
+    extent: c.VkExtent3D,
+    format: c.VkFormat,
+    image: c.VkImage,
+    memory: c.VkDeviceMemory,
+    view: c.VkImageView,
 };
 
 pub fn createBuffer(
@@ -64,14 +86,6 @@ pub fn createBuffer(
     try vk.check(vk.bindBufferMemory(device, new_buffer.buffer, new_buffer.memory, 0));
     return new_buffer;
 }
-
-pub const Image = struct {
-    extent: c.VkExtent3D,
-    format: c.VkFormat,
-    image: c.VkImage,
-    memory: c.VkDeviceMemory,
-    view: c.VkImageView,
-};
 
 // todo support creating many at once
 pub fn createImage(

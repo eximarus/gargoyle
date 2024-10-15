@@ -16,7 +16,6 @@ struct v2f {
 struct PushConstant {
     float4x4 mvp;
     Vertex *vertices;
-    //Sampler2D *texture;
 };
 
 [[vk::push_constant]]
@@ -33,8 +32,9 @@ v2f vsMain(uint vertexID : SV_VertexID) {
     return o;
 }
 
+[[vk::binding(0, 0)]] Sampler2D texture;
+
 [shader("fragment")]
 float4 fsMain(v2f i) : SV_Target {
-    //return pushConst.texture.Sample(i.uv);
-    return i.color;
+    return texture.Sample(i.uv);
 }

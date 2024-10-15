@@ -23,11 +23,6 @@ pub const Quat = extern union {
         return new(1.0, 0, 0, 0);
     }
 
-    pub inline fn norm(q: Quat) Quat {
-        const v4: Vec4 = @bitCast(q);
-        return @bitCast(v4.norm());
-    }
-
     pub inline fn add(left: Quat, right: Quat) Quat {
         return Quat{ .simd = left.simd + right.simd };
     }
@@ -45,6 +40,7 @@ pub const Quat = extern union {
     }
 
     pub inline fn mul(left: Quat, right: Quat) Quat {
+        @setFloatMode(.optimized);
         return Quat{
             .simd = mulCol(left.simd, right.simd, 0, @splat(0), u32x4{ 0, 1, 2, 3 }) +
                 mulCol(left.simd, right.simd, 1, u32x4{ 0x80000000, 0, 0x80000000, 0 }, u32x4{ 1, 0, 3, 2 }) +
@@ -70,16 +66,9 @@ pub const Quat = extern union {
         try std.testing.expectApproxEqAbs(12.0, res.elements.z, 0.0001);
     }
 
-    pub inline fn fromAxisAngle(axis: Vec3, angle: f32) Quat {
-        const sin_rot = @sin(angle * 0.5);
-        const xyz = axis.norm().mulf(sin_rot);
-
-        return new(
-            @cos(angle * 0.5),
-            xyz.x,
-            xyz.y,
-            xyz.z,
-        );
+    pub inline fn norm(q: Quat) Quat {
+        const v4: Vec4 = @bitCast(q);
+        return @bitCast(v4.norm());
     }
 
     pub inline fn euler(x: f32, y: f32, z: f32) Quat {

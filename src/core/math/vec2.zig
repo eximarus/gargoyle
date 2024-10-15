@@ -53,6 +53,10 @@ pub const Vec2 = extern struct {
         return new(a.x / b.x, a.y / b.y);
     }
 
+    pub inline fn divf(a: Vec2, b: f32) Vec2 {
+        return new(a.x / b, a.y / b);
+    }
+
     pub inline fn dot(a: Vec2, b: Vec2) f32 {
         return (a.x * b.x) + (a.y * b.y);
     }
@@ -67,19 +71,5 @@ pub const Vec2 = extern struct {
 
     pub inline fn norm(self: Vec2) Vec2 {
         return self.mulf(1.0 / self.mag());
-    }
-
-    pub inline fn approxEq(self: Vec2, other: Vec2, tolerance: f32) bool {
-        if (!std.math.approxEqAbs(f32, self.x, other.x, tolerance)) {
-            return false;
-        }
-        if (!std.math.approxEqAbs(f32, self.y, other.y, tolerance)) {
-            return false;
-        }
-        return true;
-    }
-
-    pub inline fn dist(a: Vec2, b: Vec2) f32 {
-        return a.sub(b).mag();
     }
 };

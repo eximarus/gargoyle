@@ -1,25 +1,25 @@
 const std = @import("std");
 const c = @import("c");
 const vk = @import("vulkan.zig");
+const vkdraw = @import("vkdraw.zig");
 
-const resources = @import("resources.zig");
-const ImmediateCommand = @import("ImmediateCommand.zig");
 const core = @import("../../root.zig");
 const math = core.math;
 const gltf = core.loading.gltf;
 const png = core.loading.png;
 
+const resources = @import("resources.zig");
 const types = @import("types.zig");
-const VulkanRenderer = @import("VulkanRenderer.zig");
+
+const ImmediateCommand = @import("ImmediateCommand.zig");
 
 pub fn loadGltfMeshes(
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
-    path: []const u8,
+    glb: gltf.Glb,
     gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
     imm_cmd: ImmediateCommand,
-) !struct { []types.Mesh, []resources.Texture2D } {
-    const glb = try gltf.load(path, arena);
+) ![]resources.Mesh {
     const accessors = glb.gltf.accessors orelse return error.InvalidGltf;
     const gltf_meshes = glb.gltf.meshes orelse return error.InvalidGltf;
     const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
@@ -28,7 +28,7 @@ pub fn loadGltfMeshes(
     var indices = std.ArrayList(u32).init(arena);
     var vertices = std.ArrayList(types.Vertex).init(arena);
 
-    const meshes = try gpa.alloc(types.Mesh, gltf_meshes.len);
+    const meshes = try gpa.alloc(resources.Mesh, gltf_meshes.len);
     for (gltf_meshes, meshes) |gltf_mesh, *mesh| {
         indices.clearRetainingCapacity();
         vertices.clearRetainingCapacity();
@@ -122,104 +122,10 @@ pub fn loadGltfMeshes(
             std.mem.swap(u32, &indices.items[i], &indices.items[i + 2]);
         }
 
-        // TODO display the vertex normals... for now
-        for (vertices.items) |*vtx| {
-            vtx.color = math.color4(vtx.normal.x, vtx.normal.y, vtx.normal.z, 1.0);
-        }
-
         mesh.* = try uploadMesh(indices.items, vertices.items, gpu_mem_props, imm_cmd);
     }
 
-    const out_textures = try gpa.alloc(resources.Texture2D, 1);
-    // const out_textures = try gpa.alloc(resources.Texture2D, glb.gltf.textures.?.len);
-    // for (glb.gltf.textures.?, out_textures) |tex, *out_tex| {
-    //     out_tex.* = resources.Texture2D{
-    //         .view = undefined,
-    //         .image = undefined,
-    //         .extent = undefined,
-    //         .format = undefined,
-    //         .memory = undefined,
-    //         .sampler = undefined,
-    //     };
-    //     if (tex.sampler) |s| {
-    //         const sampler = glb.gltf.samplers.?[s];
-    //
-    //         var sampler_info = c.VkSamplerCreateInfo{
-    //             .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-    //             .addressModeU = vkWrapMode(sampler.wrapS),
-    //             .addressModeV = vkWrapMode(sampler.wrapT),
-    //         };
-    //
-    //         if (sampler.magFilter) |mag| {
-    //             sampler_info.magFilter = switch (mag) {
-    //                 .nearest => c.VK_FILTER_NEAREST,
-    //                 .linear => c.VK_FILTER_LINEAR,
-    //             };
-    //         }
-    //         if (sampler.minFilter) |min| {
-    //             switch (min) {
-    //                 .linear => {
-    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
-    //                 },
-    //                 .linear_mipmap_linear => {
-    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
-    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    //                 },
-    //                 .linear_mipmap_nearest => {
-    //                     sampler_info.minFilter = c.VK_FILTER_LINEAR;
-    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    //                 },
-    //                 .nearest => {
-    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
-    //                 },
-    //                 .nearest_mipmap_linear => {
-    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
-    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    //                 },
-    //                 .nearest_mipmap_nearest => {
-    //                     sampler_info.minFilter = c.VK_FILTER_NEAREST;
-    //                     sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    //                 },
-    //             }
-    //         }
-    //
-    //         _ = vk.createSampler(imm_cmd.device, &sampler_info, null, &out_tex.sampler);
-    //     }
-    //     if (tex.source) |s| {
-    //         const image = glb.gltf.images.?[s];
-    //         const buffer_view_idx = image.bufferView orelse return error.InvalidGltf;
-    //         const buffer_view = buffer_views[buffer_view_idx];
-    //         const data_offset = buffer_view.byteOffset;
-    //         const data_len = buffer_view.byteLength;
-    //         const image_data = bin[data_offset..(data_offset + data_len)];
-    //         const png_data = try png.fromBuffer(arena, image_data);
-    //         const vk_image = try resources.createImage(
-    //             imm_cmd.device,
-    //             if (png_data.header.bit_depth > 8)
-    //                 c.VK_FORMAT_R16G16B16A16_UNORM
-    //             else
-    //                 c.VK_FORMAT_R8G8B8A8_UNORM,
-    //             c.VkExtent3D{
-    //                 .width = png_data.header.width,
-    //                 .height = png_data.header.height,
-    //                 .depth = 1,
-    //             },
-    //             c.VK_IMAGE_ASPECT_COLOR_BIT,
-    //             c.VK_IMAGE_USAGE_SAMPLED_BIT,
-    //             gpu_mem_props,
-    //             c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    //         );
-    //         out_tex.memory = vk_image.memory;
-    //         out_tex.format = vk_image.format;
-    //         out_tex.extent = c.VkExtent2D{
-    //             .width = vk_image.extent.width,
-    //             .height = vk_image.extent.height,
-    //         };
-    //         out_tex.image = vk_image.image;
-    //         out_tex.view = vk_image.view;
-    //     }
-    // }
-    return .{ meshes, out_textures };
+    return meshes;
 }
 
 fn uploadMesh(
@@ -227,12 +133,12 @@ fn uploadMesh(
     vertices: []const types.Vertex,
     gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
     imm_cmd: ImmediateCommand,
-) !types.Mesh {
+) !resources.Mesh {
     const device = imm_cmd.device;
     const vb_size = vertices.len * @sizeOf(types.Vertex);
     const ib_size = indices.len * @sizeOf(u32);
 
-    var mesh: types.Mesh = undefined;
+    var mesh: resources.Mesh = undefined;
     mesh.vertex_buffer = try resources.createBuffer(
         device,
         gpu_mem_props,
@@ -352,6 +258,178 @@ fn uploadMesh(
     vk.freeMemory(device, staging.memory, null);
 
     return mesh;
+}
+
+pub fn loadGltfTextures(
+    gpa: std.mem.Allocator,
+    arena: std.mem.Allocator,
+    glb: gltf.Glb,
+    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    imm_cmd: ImmediateCommand,
+) ![]resources.Texture2D {
+    const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
+    const bin = glb.bin orelse return error.InvalidGltf;
+
+    const out_textures = try gpa.alloc(resources.Texture2D, glb.gltf.textures.?.len);
+    for (glb.gltf.textures.?, out_textures) |tex, *out_tex| {
+        out_tex.* = resources.Texture2D{
+            .view = undefined,
+            .image = undefined,
+            .extent = undefined,
+            .format = undefined,
+            .memory = undefined,
+            .sampler = undefined,
+        };
+        if (tex.sampler) |s| {
+            const sampler = glb.gltf.samplers.?[s];
+
+            var sampler_info = c.VkSamplerCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                .addressModeU = vkWrapMode(sampler.wrapS),
+                .addressModeV = vkWrapMode(sampler.wrapT),
+            };
+
+            if (sampler.magFilter) |mag| {
+                sampler_info.magFilter = switch (mag) {
+                    .nearest => c.VK_FILTER_NEAREST,
+                    .linear => c.VK_FILTER_LINEAR,
+                };
+            }
+            if (sampler.minFilter) |min| {
+                switch (min) {
+                    .linear => {
+                        sampler_info.minFilter = c.VK_FILTER_LINEAR;
+                    },
+                    .linear_mipmap_linear => {
+                        sampler_info.minFilter = c.VK_FILTER_LINEAR;
+                        sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
+                    },
+                    .linear_mipmap_nearest => {
+                        sampler_info.minFilter = c.VK_FILTER_LINEAR;
+                        sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    },
+                    .nearest => {
+                        sampler_info.minFilter = c.VK_FILTER_NEAREST;
+                    },
+                    .nearest_mipmap_linear => {
+                        sampler_info.minFilter = c.VK_FILTER_NEAREST;
+                        sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_LINEAR;
+                    },
+                    .nearest_mipmap_nearest => {
+                        sampler_info.minFilter = c.VK_FILTER_NEAREST;
+                        sampler_info.mipmapMode = c.VK_SAMPLER_MIPMAP_MODE_NEAREST;
+                    },
+                }
+            }
+
+            var vk_sampler: c.VkSampler = undefined;
+            _ = vk.createSampler(imm_cmd.device, &sampler_info, null, &vk_sampler);
+            out_tex.sampler = vk_sampler;
+        }
+
+        if (tex.source) |s| {
+            const image = glb.gltf.images.?[s];
+            const buffer_view_idx = image.bufferView orelse return error.InvalidGltf;
+            const buffer_view = buffer_views[buffer_view_idx];
+            const data_offset = buffer_view.byteOffset;
+            const data_len = buffer_view.byteLength;
+            const image_data = bin[data_offset..(data_offset + data_len)];
+            const png_data = try png.fromBuffer(arena, image_data);
+
+            const vk_image = try resources.createImage(
+                imm_cmd.device,
+                c.VK_FORMAT_R32G32B32A32_SFLOAT,
+                c.VkExtent3D{
+                    .width = png_data.header.width,
+                    .height = png_data.header.height,
+                    .depth = 1,
+                },
+                c.VK_IMAGE_USAGE_SAMPLED_BIT |
+                    c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                    c.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                c.VK_IMAGE_ASPECT_COLOR_BIT,
+                gpu_mem_props,
+                c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            );
+
+            const image_size = @sizeOf(math.Color4) * png_data.data.len;
+            const staging = try resources.createBuffer(
+                imm_cmd.device,
+                gpu_mem_props,
+                image_size,
+                c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            );
+
+            // TODO allocate larger chunks of memory at once and use offsets
+            var data: [*]u8 = undefined;
+            try vk.check(vk.mapMemory(imm_cmd.device, staging.memory, 0, image_size, 0, @ptrCast(&data)));
+            @memcpy(data, std.mem.sliceAsBytes(png_data.data));
+            vk.unmapMemory(imm_cmd.device, staging.memory);
+
+            const C = struct {
+                staging_buffer: c.VkBuffer,
+                image: resources.Image,
+
+                pub fn submit(this: @This(), cmd: c.VkCommandBuffer) void {
+                    vkdraw.transitionImage(
+                        cmd,
+                        this.image.image,
+                        c.VK_IMAGE_LAYOUT_UNDEFINED,
+                        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    );
+                    const copy_region = c.VkBufferImageCopy{
+                        .bufferOffset = 0,
+                        .bufferRowLength = 0,
+                        .bufferImageHeight = 0,
+
+                        .imageSubresource = c.VkImageSubresourceLayers{
+                            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                            .mipLevel = 0,
+                            .baseArrayLayer = 0,
+                            .layerCount = 1,
+                        },
+                        .imageExtent = this.image.extent,
+                    };
+
+                    vk.cmdCopyBufferToImage(
+                        cmd,
+                        this.staging_buffer,
+                        this.image.image,
+                        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        1,
+                        &copy_region,
+                    );
+
+                    vkdraw.transitionImage(
+                        cmd,
+                        this.image.image,
+                        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    );
+                }
+            };
+
+            try imm_cmd.submit(&C{
+                .staging_buffer = staging.buffer,
+                .image = vk_image,
+            });
+
+            vk.destroyBuffer(imm_cmd.device, staging.buffer, null);
+            vk.freeMemory(imm_cmd.device, staging.memory, null);
+
+            out_tex.memory = vk_image.memory;
+            out_tex.format = vk_image.format;
+            out_tex.extent = c.VkExtent2D{
+                .width = vk_image.extent.width,
+                .height = vk_image.extent.height,
+            };
+            out_tex.image = vk_image.image;
+            out_tex.view = vk_image.view;
+        }
+    }
+    return out_textures;
 }
 
 pub fn vkWrapMode(self: gltf.Sampler.WrapMode) c.VkSamplerAddressMode {

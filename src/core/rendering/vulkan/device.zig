@@ -13,7 +13,13 @@ const required_device_extensions: []const c.String = &.{
     c.VK_EXT_MESH_SHADER_EXTENSION_NAME,
 };
 
-const optional_device_extensions: []const c.String = &.{};
+const optional_device_extensions: []const c.String = &.{
+    // ray tracing
+    // c.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    // c.VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+    // c.VK_KHR_RAY_QUERY_EXTENSION_NAME,
+    // c.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+};
 
 pub fn create(
     physical_device: c.VkPhysicalDevice,

@@ -4,6 +4,7 @@ const c = @import("c");
 const platform = @import("platform");
 const core = @import("../../root.zig");
 const math = core.math;
+const gltf = core.loading.gltf;
 
 const vk = @import("vulkan.zig");
 const vkdraw = @import("vkdraw.zig");
@@ -17,6 +18,7 @@ const ImmediateCommand = @import("ImmediateCommand.zig");
 const Options = @import("../Options.zig");
 
 const Shader = @import("shader.zig").GraphicsShader;
+const createDescriptorBuffer = @import("shader.zig").createDescriptorBuffer;
 const createShader = @import("shader.zig").create;
 
 const createInstance = @import("instance.zig").create;
@@ -67,13 +69,15 @@ draw_extent: c.VkExtent2D,
 imm_command_pool: c.VkCommandPool,
 imm_cmd: ImmediateCommand,
 
-test_meshes: []types.Mesh,
+test_meshes: []resources.Mesh,
 test_images: []resources.Texture2D,
 geometry_shader: Shader,
 
 default_sampler_nearest: c.VkSampler,
 default_sampler_linear: c.VkSampler,
-descriptorBufferOffsetAlignment: c.VkDeviceSize,
+descriptor_buffer_props: c.VkPhysicalDeviceDescriptorBufferPropertiesEXT,
+test_descriptor_buffer: resources.Buffer,
+test_descriptor_buffer_addr: c.VkDeviceAddress,
 
 window: Window,
 
@@ -109,15 +113,14 @@ pub fn init(
     self.graphics_queue_family = gpu_result.graphics_queue_family;
     vk.getPhysicalDeviceMemoryProperties(self.gpu, &self.gpu_mem_props);
 
-    var descriptor_buffer_props = c.VkPhysicalDeviceDescriptorBufferPropertiesEXT{
+    self.descriptor_buffer_props = c.VkPhysicalDeviceDescriptorBufferPropertiesEXT{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
     };
     var props = c.VkPhysicalDeviceProperties2{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-        .pNext = &descriptor_buffer_props,
+        .pNext = &self.descriptor_buffer_props,
     };
     vk.getPhysicalDeviceProperties2(self.gpu, &props);
-    self.descriptorBufferOffsetAlignment = descriptor_buffer_props.descriptorBufferOffsetAlignment;
 
     self.device = try createDevice(self.gpu, self.graphics_queue_family);
 
@@ -161,6 +164,7 @@ pub fn init(
         self.gpu_mem_props,
         c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     );
+
     self.depth_image = try resources.createImage(
         self.device,
         c.VK_FORMAT_D32_SFLOAT,
@@ -171,6 +175,17 @@ pub fn init(
         c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     );
 
+    var sampler_info = c.VkSamplerCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = c.VK_FILTER_NEAREST,
+        .minFilter = c.VK_FILTER_NEAREST,
+    };
+    _ = vk.createSampler(self.device, &sampler_info, null, &self.default_sampler_nearest);
+
+    sampler_info.magFilter = c.VK_FILTER_LINEAR;
+    sampler_info.minFilter = c.VK_FILTER_LINEAR;
+    _ = vk.createSampler(self.device, &sampler_info, null, &self.default_sampler_linear);
+
     try self.initCommands();
     try self.initSync();
     try self.initDescriptors();
@@ -179,21 +194,64 @@ pub fn init(
         "assets/shaders/default.spv",
         self.arena,
         self.device,
+        self.descriptor_buffer_props.descriptorBufferOffsetAlignment,
         .{},
     );
-    self.test_meshes, self.test_images = try loader.loadGltfMeshes(self.gpa, self.arena, "assets/avocado.glb", self.gpu_mem_props, self.imm_cmd);
 
-    // var sampler_info = c.VkSamplerCreateInfo{
-    //     .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-    //     .magFilter = c.VK_FILTER_NEAREST,
-    //     .minFilter = c.VK_FILTER_NEAREST,
-    // };
-    //
-    // _ = vk.createSampler(self.device, &sampler_info, null, &self.default_sampler_nearest);
-    //
-    // sampler_info.magFilter = c.VK_FILTER_LINEAR;
-    // sampler_info.minFilter = c.VK_FILTER_LINEAR;
-    // _ = vk.createSampler(self.device, &sampler_info, null, &self.default_sampler_linear);
+    const glb = try gltf.load("assets/avocado.glb", self.arena);
+    self.test_meshes = try loader.loadGltfMeshes(
+        self.gpa,
+        self.arena,
+        glb,
+        self.gpu_mem_props,
+        self.imm_cmd,
+    );
+
+    self.test_images = try loader.loadGltfTextures(
+        self.gpa,
+        self.arena,
+        glb,
+        self.gpu_mem_props,
+        self.imm_cmd,
+    );
+
+    self.test_descriptor_buffer = try createDescriptorBuffer(
+        self.device,
+        self.gpu_mem_props,
+        self.geometry_shader.descriptor_set,
+    );
+
+    self.test_descriptor_buffer_addr = vk.getBufferDeviceAddress(
+        self.device,
+        &c.VkBufferDeviceAddressInfo{
+            .sType = c.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = self.test_descriptor_buffer.buffer,
+        },
+    );
+
+    var data: [*]u8 = undefined;
+    try vk.check(vk.mapMemory(self.device, self.test_descriptor_buffer.memory, 0, self.test_descriptor_buffer.size, 0, @ptrCast(&data)));
+
+    const image_descriptor = c.VkDescriptorImageInfo{
+        .sampler = self.test_images[0].sampler orelse self.default_sampler_nearest,
+        .imageView = self.test_images[0].view,
+        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+
+    vk.getDescriptorEXT(
+        self.device,
+        &c.VkDescriptorGetInfoEXT{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT,
+            .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .data = c.VkDescriptorDataEXT{
+                .pCombinedImageSampler = &image_descriptor,
+            },
+        },
+        self.descriptor_buffer_props.combinedImageSamplerDescriptorSize,
+        data[self.geometry_shader.descriptor_set.offset..],
+    );
+
+    vk.unmapMemory(self.device, self.test_descriptor_buffer.memory);
 
     return self;
 }
@@ -277,7 +335,12 @@ pub fn render(self: *VulkanRenderer) !void {
     const frame = self.frames[self.frame_number];
     const timeout = 1 * std.time.ns_per_s;
 
-    try vk.check(vk.waitForFences(self.device, 1, &frame.render_fence, c.VK_TRUE, timeout));
+    vk.check(vk.waitForFences(self.device, 1, &frame.render_fence, c.VK_TRUE, timeout)) catch |err| {
+        if (err == vk.Error.DeviceLost) {
+            @panic("DEVICE LOST");
+        }
+        return err;
+    };
     try vk.check(vk.resetFences(self.device, 1, &frame.render_fence));
 
     var swapchain_image_index: u32 = undefined;
@@ -316,7 +379,6 @@ pub fn render(self: *VulkanRenderer) !void {
     );
 
     const mesh = self.test_meshes[0];
-    // const image = self.test_images[0];
 
     if (self.window.input.kb.getKeyDown(.a)) {
         const rot = math.Quat.euler(0, 5, 0);
@@ -367,6 +429,8 @@ pub fn render(self: *VulkanRenderer) !void {
         self.geometry_shader,
         push_constants,
         mesh.index_buffer,
+        self.test_descriptor_buffer,
+        self.test_descriptor_buffer_addr,
     );
 
     vkdraw.transitionImage(
