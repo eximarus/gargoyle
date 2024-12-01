@@ -24,6 +24,7 @@ pub usingnamespace @cImport({
     }
     @cDefine("VK_NO_PROTOTYPES", {});
     @cInclude("vulkan/vulkan.h");
+    // @cInclude("fbx.h");
 });
 
 pub const String = [*:0]const u8;

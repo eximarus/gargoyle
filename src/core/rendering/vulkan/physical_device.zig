@@ -7,21 +7,21 @@ pub fn pick(
     instance: c.VkInstance,
     surface: c.VkSurfaceKHR,
 ) !struct {
-    gpu: c.VkPhysicalDevice,
+    physical_device: c.VkPhysicalDevice,
     graphics_queue_family: u32,
 } {
-    var gpu_count: u32 = undefined;
-    try vk.check(vk.enumeratePhysicalDevices(instance, &gpu_count, null));
-    std.debug.assert(gpu_count != 0);
+    var physical_device_count: u32 = undefined;
+    try vk.check(vk.enumeratePhysicalDevices(instance, &physical_device_count, null));
+    std.debug.assert(physical_device_count != 0);
 
-    const gpus = try arena.alloc(c.VkPhysicalDevice, gpu_count);
-    try vk.check(vk.enumeratePhysicalDevices(instance, &gpu_count, gpus.ptr));
+    const physical_devices = try arena.alloc(c.VkPhysicalDevice, physical_device_count);
+    try vk.check(vk.enumeratePhysicalDevices(instance, &physical_device_count, physical_devices.ptr));
 
     var map = std.AutoArrayHashMap(u32, c.VkPhysicalDevice).init(arena);
-    for (gpus) |gpu| {
-        const score = rateDeviceSuitability(gpu);
+    for (physical_devices) |physical_device| {
+        const score = rateDeviceSuitability(physical_device);
         if (score > 0) {
-            try map.put(score, gpu);
+            try map.put(score, physical_device);
         }
     }
 
@@ -38,19 +38,19 @@ pub fn pick(
     };
     map.sort(C{ .keys = map.keys() });
 
-    var physical_device: c.VkPhysicalDevice = undefined;
+    var res_physical_device: c.VkPhysicalDevice = undefined;
     var graphics_queue_family: ?u32 = null;
-    for (map.values()) |gpu| {
-        physical_device = gpu;
+    for (map.values()) |physical_device| {
+        res_physical_device = physical_device;
         var prop_count: u32 = undefined;
-        vk.getPhysicalDeviceQueueFamilyProperties(gpu, &prop_count, null);
+        vk.getPhysicalDeviceQueueFamilyProperties(physical_device, &prop_count, null);
         const queue_family_properties = try arena.alloc(c.VkQueueFamilyProperties, prop_count);
-        vk.getPhysicalDeviceQueueFamilyProperties(gpu, &prop_count, queue_family_properties.ptr);
+        vk.getPhysicalDeviceQueueFamilyProperties(physical_device, &prop_count, queue_family_properties.ptr);
 
         for (queue_family_properties, 0..) |prop, i| {
             const index: u32 = @intCast(i);
             var supports_present: c.VkBool32 = undefined;
-            try vk.check(vk.getPhysicalDeviceSurfaceSupportKHR(gpu, index, surface, &supports_present));
+            try vk.check(vk.getPhysicalDeviceSurfaceSupportKHR(physical_device, index, surface, &supports_present));
             const graphics_bit = prop.queueFlags &
                 c.VK_QUEUE_GRAPHICS_BIT != 0;
             if (graphics_bit and supports_present == c.VK_TRUE) {
@@ -61,7 +61,7 @@ pub fn pick(
     }
 
     return .{
-        .gpu = physical_device,
+        .physical_device = res_physical_device,
         .graphics_queue_family = graphics_queue_family orelse {
             std.log.err("Did not find suitable queue which supports graphics, compute and presentation.\n", .{});
             return error.NoDeviceFound;

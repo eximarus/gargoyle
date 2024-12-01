@@ -1,13 +1,18 @@
 const std = @import("std");
 const Vec3 = @import("vec3.zig").Vec3;
+const Vec4 = @import("vec4.zig").Vec4;
 const Quat = @import("quat.zig").Quat;
 const f32x4 = @Vector(4, f32);
 const i32x4 = @Vector(4, i32);
+
+const f32x16 = @Vector(16, f32);
+const i32x16 = @Vector(16, i32);
 
 pub const Mat4 = extern union {
     /// column-major
     elements: [4 * 4]f32,
     columns: [4]f32x4,
+    simd: f32x16,
 
     pub inline fn identity() Mat4 {
         var mat = std.mem.zeroes(Mat4);
@@ -21,19 +26,19 @@ pub const Mat4 = extern union {
     pub inline fn mul(left: Mat4, right: Mat4) Mat4 {
         @setFloatMode(.optimized);
 
-        var out_matrix: Mat4 = undefined;
-        inline for (0..4) |i| {
-            out_matrix.columns[i] = linearCombine(right.columns[i], left);
-        }
-        return out_matrix;
-    }
+        const right0 = std.simd.repeat(16, left.columns[0]);
+        const right1 = std.simd.repeat(16, left.columns[1]);
+        const right2 = std.simd.repeat(16, left.columns[2]);
+        const right3 = std.simd.repeat(16, left.columns[3]);
 
-    inline fn linearCombine(left: f32x4, right: Mat4) f32x4 {
-        var result = @shuffle(f32, left, undefined, @as(i32x4, @splat(0))) * right.columns[0];
-        result += @shuffle(f32, left, undefined, @as(i32x4, @splat(1))) * right.columns[1];
-        result += @shuffle(f32, left, undefined, @as(i32x4, @splat(2))) * right.columns[2];
-        result += @shuffle(f32, left, undefined, @as(i32x4, @splat(3))) * right.columns[3];
-        return result;
+        const l = right.simd;
+
+        var result = @shuffle(f32, l, undefined, i32x16{ 0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12 }) * right0;
+        result += @shuffle(f32, l, undefined, i32x16{ 1, 1, 1, 1, 5, 5, 5, 5, 9, 9, 9, 9, 13, 13, 13, 13 }) * right1;
+        result += @shuffle(f32, l, undefined, i32x16{ 2, 2, 2, 2, 6, 6, 6, 6, 10, 10, 10, 10, 14, 14, 14, 14 }) * right2;
+        result += @shuffle(f32, l, undefined, i32x16{ 3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15 }) * right3;
+
+        return Mat4{ .simd = result };
     }
 
     test mul {
@@ -63,19 +68,41 @@ pub const Mat4 = extern union {
     }
 
     pub inline fn perspective(
-        fovy_rad: f32,
-        width: f32,
-        height: f32,
+        fov_y: f32,
+        width: u32,
+        height: u32,
         znear: f32,
         zfar: f32,
     ) Mat4 {
-        const aspect = width / height;
-        const h = 1.0 / @tan(fovy_rad * 0.5);
+        const aspect = @as(f32, @floatFromInt(width)) /
+            @as(f32, @floatFromInt(height));
+        return perspectiveAspect(fov_y, aspect, znear, zfar);
+    }
+
+    pub inline fn perspectiveAspect(
+        fov_y: f32,
+        aspect: f32,
+        znear: f32,
+        zfar: f32,
+    ) Mat4 {
+        const fov_rad = fov_y * std.math.rad_per_deg;
+        const h = 1.0 / @tan(fov_rad * 0.5);
         const w = h / aspect;
         const a = zfar / (zfar - znear);
         const b = (-znear * zfar) / (zfar - znear);
 
         return projection(w, h, a, b);
+    }
+
+    pub inline fn orthographicMag(
+        xmag: f32,
+        ymag: f32,
+        znear: f32,
+        zfar: f32,
+    ) Mat4 {
+        const a = 1.0 / (zfar - znear);
+        const b = (-znear * zfar) / (zfar - znear);
+        return projection(ymag, xmag, a, b);
     }
 
     pub inline fn orthographic(
@@ -103,7 +130,7 @@ pub const Mat4 = extern union {
         return out_matrix;
     }
 
-    pub inline fn lookAt(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
+    pub inline fn view(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
         const f = center.sub(eye).norm();
         const s = up.cross(f).norm();
         const u = f.cross(s);
@@ -133,7 +160,7 @@ pub const Mat4 = extern union {
         return out_matrix;
     }
 
-    pub inline fn transform(pos: Vec3, rot: Quat, scale: Vec3) Mat4 {
+    pub inline fn transformation(pos: Vec3, rot: Quat, scale: Vec3) Mat4 {
         return scaling(scale).mul(rotation(rot)).mul(translation(pos));
     }
 

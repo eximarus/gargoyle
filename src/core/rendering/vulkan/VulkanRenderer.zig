@@ -17,9 +17,10 @@ const ImmediateCommand = @import("ImmediateCommand.zig");
 
 const Options = @import("../Options.zig");
 
-const Shader = @import("shader.zig").GraphicsShader;
-const createDescriptorBuffer = @import("shader.zig").createDescriptorBuffer;
-const createShader = @import("shader.zig").create;
+const shaders = @import("shader.zig");
+const Shader = shaders.Shader;
+const createDescriptorBuffer = shaders.createDescriptorBuffer;
+const createShader = shaders.create;
 
 const createInstance = @import("instance.zig").create;
 const pickPhysicalDevice = @import("physical_device.zig").pick;
@@ -44,8 +45,8 @@ arena: std.mem.Allocator,
 instance: c.VkInstance,
 debug_messenger: c.VkDebugUtilsMessengerEXT,
 
-gpu: c.VkPhysicalDevice,
-gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+physical_device: c.VkPhysicalDevice,
+physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
 
 device: c.VkDevice,
 surface: c.VkSurfaceKHR,
@@ -73,9 +74,11 @@ test_meshes: []resources.Mesh,
 test_images: []resources.Texture2D,
 geometry_shader: Shader,
 
+physical_device_properties: c.VkPhysicalDeviceProperties2,
+descriptor_buffer_props: c.VkPhysicalDeviceDescriptorBufferPropertiesEXT,
+
 default_sampler_nearest: c.VkSampler,
 default_sampler_linear: c.VkSampler,
-descriptor_buffer_props: c.VkPhysicalDeviceDescriptorBufferPropertiesEXT,
 test_descriptor_buffer: resources.Buffer,
 test_descriptor_buffer_addr: c.VkDeviceAddress,
 
@@ -88,6 +91,7 @@ pub fn init(
     options: Options,
 ) !VulkanRenderer {
     vk.init();
+    // TODO vkSetup module
 
     var self: VulkanRenderer = undefined;
     self.window = window;
@@ -109,26 +113,26 @@ pub fn init(
     try vk.check(platform.vk.createSurface(window, self.instance, &self.surface));
 
     const gpu_result = try pickPhysicalDevice(arena, self.instance, self.surface);
-    self.gpu = gpu_result.gpu;
+    self.physical_device = gpu_result.physical_device;
     self.graphics_queue_family = gpu_result.graphics_queue_family;
-    vk.getPhysicalDeviceMemoryProperties(self.gpu, &self.gpu_mem_props);
+    vk.getPhysicalDeviceMemoryProperties(self.physical_device, &self.physical_device_mem_props);
 
     self.descriptor_buffer_props = c.VkPhysicalDeviceDescriptorBufferPropertiesEXT{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
     };
-    var props = c.VkPhysicalDeviceProperties2{
+    self.physical_device_properties = c.VkPhysicalDeviceProperties2{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
         .pNext = &self.descriptor_buffer_props,
     };
-    vk.getPhysicalDeviceProperties2(self.gpu, &props);
+    vk.getPhysicalDeviceProperties2(self.physical_device, &self.physical_device_properties);
 
-    self.device = try createDevice(self.gpu, self.graphics_queue_family);
+    self.device = try createDevice(self.physical_device, self.graphics_queue_family);
 
     vk.getDeviceQueue(self.device, self.graphics_queue_family, 0, &self.graphics_queue);
 
     const sc_result = try createSwapchain(
         arena,
-        self.gpu,
+        self.physical_device,
         self.device,
         self.surface,
         .{
@@ -161,7 +165,7 @@ pub fn init(
             c.VK_IMAGE_USAGE_STORAGE_BIT |
             c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         c.VK_IMAGE_ASPECT_COLOR_BIT,
-        self.gpu_mem_props,
+        self.physical_device_mem_props,
         c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     );
 
@@ -171,7 +175,7 @@ pub fn init(
         draw_image_extent,
         c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         c.VK_IMAGE_ASPECT_DEPTH_BIT,
-        self.gpu_mem_props,
+        self.physical_device_mem_props,
         c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
     );
 
@@ -195,6 +199,7 @@ pub fn init(
         self.arena,
         self.device,
         self.descriptor_buffer_props.descriptorBufferOffsetAlignment,
+        self.physical_device_properties.properties.limits.maxDescriptorSetSampledImages,
         .{},
     );
 
@@ -203,7 +208,7 @@ pub fn init(
         self.gpa,
         self.arena,
         glb,
-        self.gpu_mem_props,
+        self.physical_device_mem_props,
         self.imm_cmd,
     );
 
@@ -211,13 +216,13 @@ pub fn init(
         self.gpa,
         self.arena,
         glb,
-        self.gpu_mem_props,
+        self.physical_device_mem_props,
         self.imm_cmd,
     );
 
     self.test_descriptor_buffer = try createDescriptorBuffer(
         self.device,
-        self.gpu_mem_props,
+        self.physical_device_mem_props,
         self.geometry_shader.descriptor_set,
     );
 
@@ -402,16 +407,16 @@ pub fn render(self: *VulkanRenderer) !void {
         math.Vec3.one().mulf(50),
     );
 
-    const view = math.Mat4.lookAt(
+    const view = math.Mat4.view(
         math.vec3(0, 0.0, -5.0),
         math.vec3(0, 0.0, 0.0),
         math.vec3(0, 1.0, 0.0),
     );
 
     const projection = math.Mat4.perspective(
-        math.degToRad(60.0),
-        @floatFromInt(self.draw_extent.width),
-        @floatFromInt(self.draw_extent.height),
+        60.0,
+        self.draw_extent.width,
+        self.draw_extent.height,
         0.3,
         100.0,
     );

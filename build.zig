@@ -8,23 +8,62 @@ pub fn build(b: *std.Build) !void {
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .windows,
+        .cpu_features_add = std.Target.x86.featureSet(&.{ .avx2, .fma }),
     });
 
     const optimize = b.standardOptimizeOption(.{});
     const vulkan_dep = b.dependency("vulkan", .{});
 
     const c_mod = b.addModule("c", .{
+        .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/c.zig"),
         .link_libc = true,
+        .link_libcpp = true,
     });
     c_mod.addIncludePath(vulkan_dep.path("include"));
+
+    // const fbx_sdk_dir = b.graph.env_map.get("FBX_SDK_DIR") orelse return error.FbxSdkNotFound;
+    //
+    // const fbx_lib = b.addStaticLibrary(.{
+    //     .name = "fbx-loader",
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // fbx_lib.linkLibCpp();
+    // fbx_lib.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "lib", "x64", "release" }) });
+    // fbx_lib.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "include" }) });
+    // fbx_lib.linkSystemLibrary("libfbxsdk");
+    // fbx_lib.addIncludePath(b.path("src/core/loading/fbx"));
+    // fbx_lib.addCSourceFile(.{
+    //     .file = b.path("src/core/loading/fbx/fbx.cpp"),
+    //     .flags = &.{"-std=c++17"},
+    // });
+    //
+    // c_mod.linkLibrary(fbx_lib);
+    // c_mod.addIncludePath(b.path("src/core/loading/fbx"));
+    // c_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "lib", "x64", "release" }) });
+
+    const rt_types = b.addModule("rt_types", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/runtime/types.zig"),
+    });
+
+    const rt_mod = b.addModule("runtime", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/runtime/rt.zig"),
+    });
 
     const platform_mod = b.addModule("platform", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/platform/win32/root.zig"),
-        .imports = &.{.{ .name = "c", .module = c_mod }},
+        .imports = &.{
+            .{ .name = "c", .module = c_mod },
+            .{ .name = "runtime", .module = rt_mod },
+        },
     });
 
     const gargoyle_mod = b.addModule("gargoyle", .{
@@ -33,6 +72,7 @@ pub fn build(b: *std.Build) !void {
         .imports = &.{
             .{ .name = "c", .module = c_mod },
             .{ .name = "platform", .module = platform_mod },
+            .{ .name = "rt_types", .module = rt_types },
         },
     });
 
@@ -45,9 +85,10 @@ pub fn build(b: *std.Build) !void {
         .name = "gargoyle",
         .target = target,
         .optimize = optimize,
-        .root_source_file = b.path("src/runtime/root.zig"),
+        .root_source_file = b.path("src/runtime/entry.zig"),
     });
     lib.root_module.addImport("gargoyle", gargoyle_mod);
+
     b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
@@ -84,13 +125,14 @@ pub fn addShader(
     const cmd = b.addSystemCommand(&.{
         "slangc",
         "-profile",
-        "spirv_1_5",
+        "sm_6_6+spirv_1_6",
         "-target",
         "spirv",
         "-emit-spirv-directly",
         "-fvk-use-entrypoint-name",
-        "-fvk-use-scalar-layout",
+        "-fvk-use-gl-layout",
         "-matrix-layout-column-major",
+        "-O3",
         "-o",
     });
     const out_file = cmd.addOutputFileArg(

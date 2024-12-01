@@ -17,7 +17,7 @@ pub fn loadGltfMeshes(
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
     glb: gltf.Glb,
-    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
     imm_cmd: ImmediateCommand,
 ) ![]resources.Mesh {
     const accessors = glb.gltf.accessors orelse return error.InvalidGltf;
@@ -33,6 +33,8 @@ pub fn loadGltfMeshes(
         indices.clearRetainingCapacity();
         vertices.clearRetainingCapacity();
 
+        var min = math.Vec3.splat(math.inf(f32));
+        var max = math.Vec3.splat(-math.inf(f32));
         for (gltf_mesh.primitives) |p| {
             const idx_acc = accessors[p.indices orelse return error.InvalidGltf];
             const idx_count = idx_acc.count;
@@ -81,29 +83,33 @@ pub fn loadGltfMeshes(
                 const vtx_data = bin[vtx_data_offset..(vtx_data_offset + vtx_data_len)];
                 @memcpy(std.mem.asBytes(&vertex.position), vtx_data);
 
+                const pos = vertex.position;
+                min = math.Vec3.min(pos, min);
+                max = math.Vec3.max(pos, max);
+
                 if (normal_acc) |acc| {
-                    const normals = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.normal)));
+                    const normals = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.normal)));
                     @memcpy(std.mem.asBytes(&vertex.normal), normals);
                 } else {
                     vertex.normal = math.vec3(1, 0, 0);
                 }
 
                 if (tangent_acc) |acc| {
-                    const tangent = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.tangent)));
+                    const tangent = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.tangent)));
                     @memcpy(std.mem.asBytes(&vertex.tangent), tangent);
                 } else {
                     vertex.tangent = math.vec4(0, 0, 0, 1);
                 }
 
                 if (texcoord_acc) |acc| {
-                    const texcoords = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.uv)));
+                    const texcoords = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.uv)));
                     @memcpy(std.mem.asBytes(&vertex.uv), texcoords);
                 } else {
                     vertex.uv = math.vec2(0, 0);
                 }
 
                 if (color_acc) |acc| {
-                    const colors = gltf.readVertex(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.color)));
+                    const colors = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.color)));
                     @memcpy(std.mem.asBytes(&vertex.color), colors);
                 } else {
                     vertex.color = math.color4(1.0, 1.0, 1.0, 1.0);
@@ -122,7 +128,18 @@ pub fn loadGltfMeshes(
             std.mem.swap(u32, &indices.items[i], &indices.items[i + 2]);
         }
 
-        mesh.* = try uploadMesh(indices.items, vertices.items, gpu_mem_props, imm_cmd);
+        mesh.* = try uploadMesh(
+            indices.items,
+            vertices.items,
+            resources.Mesh.Bounds{
+                .min = min,
+                .max = max,
+                .origin = max.add(min).divf(2),
+                .extents = max.sub(min).divf(2),
+            },
+            physical_device_mem_props,
+            imm_cmd,
+        );
     }
 
     return meshes;
@@ -131,60 +148,34 @@ pub fn loadGltfMeshes(
 fn uploadMesh(
     indices: []const u32,
     vertices: []const types.Vertex,
-    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    bounds: resources.Mesh.Bounds,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
     imm_cmd: ImmediateCommand,
 ) !resources.Mesh {
     const device = imm_cmd.device;
     const vb_size = vertices.len * @sizeOf(types.Vertex);
     const ib_size = indices.len * @sizeOf(u32);
 
-    var mesh: resources.Mesh = undefined;
-    mesh.vertex_buffer = try resources.createBuffer(
-        device,
-        gpu_mem_props,
-        vb_size,
-        c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    );
-
-    var min_x = math.inf(f32);
-    var min_y = math.inf(f32);
-    var min_z = math.inf(f32);
-
-    var max_x = -math.inf(f32);
-    var max_y = -math.inf(f32);
-    var max_z = -math.inf(f32);
-
-    for (vertices) |vert| {
-        const pos = vert.position;
-        if (pos.x < min_x) {
-            min_x = pos.x;
-        }
-        if (pos.y < min_y) {
-            min_y = pos.y;
-        }
-        if (pos.z < min_z) {
-            min_z = pos.z;
-        }
-        if (pos.x > max_x) {
-            max_x = pos.x;
-        }
-        if (pos.y > max_y) {
-            max_y = pos.y;
-        }
-        if (pos.z > max_z) {
-            max_z = pos.z;
-        }
-    }
-
-    const min = math.vec3(min_x, min_y, min_z);
-    const max = math.vec3(max_x, max_y, max_z);
-    mesh.bounds = .{
-        .min = min,
-        .max = max,
-        .center = min.add(max).divf(2),
+    var mesh = resources.Mesh{
+        .bounds = bounds,
+        .vertex_buffer = try resources.createBuffer(
+            device,
+            physical_device_mem_props,
+            vb_size,
+            c.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                c.VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                c.VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ),
+        .vb_addr = undefined,
+        .index_buffer = try resources.createBuffer(
+            device,
+            physical_device_mem_props,
+            ib_size,
+            c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        ),
     };
 
     mesh.vb_addr = vk.getBufferDeviceAddress(
@@ -195,18 +186,9 @@ fn uploadMesh(
         },
     );
 
-    mesh.index_buffer = try resources.createBuffer(
-        device,
-        gpu_mem_props,
-        ib_size,
-        c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-            c.VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-    );
-
     const staging = try resources.createBuffer(
         device,
-        gpu_mem_props,
+        physical_device_mem_props,
         vb_size + ib_size,
         c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -214,6 +196,7 @@ fn uploadMesh(
     );
 
     // TODO allocate larger chunks of memory at once and use offsets
+    // aka BlockAllocator
     var data: [*]u8 = undefined;
     try vk.check(vk.mapMemory(device, staging.memory, 0, vb_size + ib_size, 0, @ptrCast(&data)));
     @memcpy(data, std.mem.sliceAsBytes(vertices));
@@ -264,7 +247,7 @@ pub fn loadGltfTextures(
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
     glb: gltf.Glb,
-    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
     imm_cmd: ImmediateCommand,
 ) ![]resources.Texture2D {
     const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
@@ -348,14 +331,14 @@ pub fn loadGltfTextures(
                     c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                     c.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                 c.VK_IMAGE_ASPECT_COLOR_BIT,
-                gpu_mem_props,
+                physical_device_mem_props,
                 c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             );
 
             const image_size = @sizeOf(math.Color4) * png_data.data.len;
             const staging = try resources.createBuffer(
                 imm_cmd.device,
-                gpu_mem_props,
+                physical_device_mem_props,
                 image_size,
                 c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -438,4 +421,29 @@ pub fn vkWrapMode(self: gltf.Sampler.WrapMode) c.VkSamplerAddressMode {
         .clamp_to_edge => c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .mirrored_repeat => c.VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
     };
+}
+
+pub fn loadGltfMaterials(
+    gpa: std.mem.Allocator,
+    arena: std.mem.Allocator,
+    glb: gltf.Glb,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    imm_cmd: ImmediateCommand,
+) ![]resources.Material {
+    const buffer_views = glb.gltf.bufferViews orelse return error.InvalidGltf;
+    const bin = glb.bin orelse return error.InvalidGltf;
+    _ = bin;
+    _ = buffer_views;
+    _ = imm_cmd;
+    _ = physical_device_mem_props;
+    _ = arena;
+
+    const out_materials = try gpa.alloc(resources.Material, glb.gltf.materials.?.len);
+    for (glb.gltf.materials.?, out_materials) |mat, *out_mat| {
+        out_mat.* = resources.Material{};
+        _ = mat;
+        // mat.pbrMetallicRoughness.?.
+        // mat.emissiveFactor
+    }
+    return out_materials;
 }

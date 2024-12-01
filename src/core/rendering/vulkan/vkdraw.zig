@@ -7,7 +7,7 @@ const math = core.math;
 const vk = @import("vulkan.zig");
 const common = @import("common.zig");
 const resources = @import("resources.zig");
-const GraphicsShader = @import("shader.zig").GraphicsShader;
+const Shader = @import("shader.zig").Shader;
 const types = @import("types.zig");
 const VulkanRenderer = @import("VulkanRenderer.zig");
 
@@ -51,7 +51,7 @@ pub fn graphics(
     draw_extent: c.VkExtent2D,
     draw_image: resources.Image,
     depth_image: resources.Image,
-    shader: GraphicsShader,
+    shader: Shader,
     push_constants: types.PushConstants,
     index_buffer: resources.Buffer,
     descriptor_buffer: resources.Buffer,
@@ -73,6 +73,7 @@ pub fn graphics(
             .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
             .clearValue = c.VkClearValue{
                 .color = c.VkClearColorValue{
+                    // TODO dont clear, draw skybox
                     .float32 = [4]f32{ 0.0, 0.0, 0.0, 0.0 },
                 },
             },
@@ -92,6 +93,8 @@ pub fn graphics(
     });
 
     shader.bind(cmd);
+    vk.cmdDispatch(cmd, 128, 1, 1); // TODO
+
     const viewport_height: f32 = @floatFromInt(draw_extent.height);
 
     // vertex input state
@@ -176,7 +179,7 @@ pub fn graphics(
 
     vk.cmdPushConstants(
         cmd,
-        shader.pipeline_layout,
+        shader.gfx.pipeline_layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(types.PushConstants),
@@ -194,7 +197,7 @@ pub fn graphics(
     vk.cmdSetDescriptorBufferOffsetsEXT(
         cmd,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        shader.pipeline_layout,
+        shader.gfx.pipeline_layout,
         0,
         1,
         &@as(u32, 0),
@@ -202,7 +205,8 @@ pub fn graphics(
     );
 
     vk.cmdBindIndexBuffer(cmd, index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    vk.cmdDrawIndexed(cmd, @intCast(index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
+    // vk.cmdDrawIndexedIndirectCount();
+    // vk.cmdDrawIndexed(cmd, @intCast(index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
     vk.cmdEndRendering(cmd);
 }
 

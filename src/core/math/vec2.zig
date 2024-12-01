@@ -1,4 +1,5 @@
 const std = @import("std");
+const Vec3 = @import("vec3.zig").Vec3;
 
 pub const vec2 = Vec2.new;
 pub const Vec2 = extern struct {
@@ -7,6 +8,10 @@ pub const Vec2 = extern struct {
 
     pub inline fn new(x: f32, y: f32) Vec2 {
         return Vec2{ .x = x, .y = y };
+    }
+
+    pub inline fn splat(scalar: f32) Vec2 {
+        return Vec2{ .x = scalar, .y = scalar };
     }
 
     pub inline fn zero() Vec2 {
@@ -31,6 +36,10 @@ pub const Vec2 = extern struct {
 
     pub inline fn right() Vec2 {
         return new(1.0, 0.0);
+    }
+
+    pub inline fn toVec3(self: Vec2) Vec3 {
+        return Vec3.new(self.x, self.y, 0.0);
     }
 
     pub inline fn add(a: Vec2, b: Vec2) Vec2 {
@@ -71,5 +80,9 @@ pub const Vec2 = extern struct {
 
     pub inline fn norm(self: Vec2) Vec2 {
         return self.mulf(1.0 / self.mag());
+    }
+
+    pub inline fn cross(a: Vec2, b: Vec2) f32 {
+        return a.x * b.y - a.y * b.x;
     }
 };

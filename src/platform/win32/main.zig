@@ -1,15 +1,11 @@
 const std = @import("std");
-
 const c = @import("c");
+
+const Runtime = @import("runtime");
 const platform = @import("root.zig");
 const Input = platform.Input;
 const Window = platform.Window;
 const WINAPI = std.os.windows.WINAPI;
-
-const Engine = opaque {};
-var ggStart: *const fn (Window) callconv(.C) *Engine = undefined;
-var ggUpdate: *const fn (*Engine) callconv(.C) u32 = undefined;
-var ggShutdown: *const fn (*Engine) callconv(.C) void = undefined;
 
 var input: Input = undefined;
 
@@ -32,7 +28,6 @@ pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param
                 std.log.debug("{}", .{err});
             }
         },
-
         c.WM_MOUSEMOVE => {
             const xy: i32 = @intCast(l_param);
             const y: i16 = @intCast(xy >> 16);
@@ -42,11 +37,16 @@ pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param
                 .x = @max(0, x),
                 .y = @max(0, y),
             };
+            input.mouse.is_hovering = false;
         },
-
-        c.WM_MOUSEHOVER => {},
-        c.WM_MOUSEHWHEEL => {},
-
+        c.WM_MOUSEHOVER => {
+            input.mouse.is_hovering = true;
+        },
+        c.WM_MOUSEWHEEL => {
+            const word: u32 = @intCast(w_param);
+            const rotation: u16 = @intCast(word >> 16);
+            input.mouse.wheel_delta = @as(f32, @floatFromInt(rotation)) / @as(f32, @floatFromInt(c.WHEEL_DELTA));
+        },
         c.WM_LBUTTONUP => {
             input.mouse.setButtonUp(.left) catch {};
         },
@@ -91,16 +91,13 @@ pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param
                 else => unreachable,
             }
         },
-
         c.WM_ERASEBKGND,
         c.WM_NCACTIVATE,
         c.WM_NCPAINT,
         => return 1,
         c.WM_CLOSE => c.DestroyWindow(hwnd),
         c.WM_DESTROY => c.PostQuitMessage(0),
-        else => {
-            // std.log.warn("Unknown window message: 0x{x:0>4}\n", .{uMsg});
-        },
+        else => {},
     };
     return c.DefWindowProcA(hwnd, u_msg, w_param, l_param);
 }
@@ -120,10 +117,6 @@ pub export fn wWinMain(
     _: std.os.windows.PWSTR,
     _: std.os.windows.INT,
 ) callconv(WINAPI) std.os.windows.INT {
-    var input_buf: [16 * 1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&input_buf);
-    input = Input.init(fba.allocator());
-
     const hinstance: c.HINSTANCE = @ptrCast(@alignCast(_hInstance));
 
     var class = std.mem.zeroes(c.WNDCLASSEXA);
@@ -159,22 +152,10 @@ pub export fn wWinMain(
     );
     _ = c.ShowWindow(hwnd, c.SW_NORMAL);
 
-    var dyn_lib = std.DynLib.open("gargoyle.dll") catch |err| {
-        std.log.err("failed to load gargoyle.dll. err: {}\n", .{err});
-        return 1;
-    };
-    ggStart = dyn_lib.lookup(@TypeOf(ggStart), "ggStart") orelse {
-        std.log.err("failed to load ggStart function. \n", .{});
-        return 1;
-    };
-    ggUpdate = dyn_lib.lookup(@TypeOf(ggUpdate), "ggUpdate") orelse {
-        std.log.err("failed to load ggUpdate function. \n", .{});
-        return 1;
-    };
-    ggShutdown = dyn_lib.lookup(@TypeOf(ggShutdown), "ggShutdown") orelse {
-        std.log.err("failed to load ggShutdown function. \n", .{});
-        return 1;
-    };
+    var inputBuf: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&inputBuf);
+    const allocator = fba.allocator();
+    input = Input.init(allocator);
 
     const window = Window{
         .hwnd = hwnd,
@@ -183,13 +164,16 @@ pub export fn wWinMain(
         .height = @intCast(screen_height),
         .input = &input,
     };
-    const engine = ggStart(window);
-    defer ggShutdown(engine);
+
+    const rt = try Runtime.init(window, "gargoyle.dll");
+    defer rt.shutdown();
 
     var msg: c.MSG = std.mem.zeroes(c.MSG);
     while (true) {
         input.kb.events.clearRetainingCapacity();
         input.mouse.events.clearRetainingCapacity();
+        input.mouse.wheel_delta = 0;
+
         while (c.PeekMessageA(&msg, null, 0, 0, c.PM_NOREMOVE) == c.TRUE) {
             if (c.GetMessageA(&msg, null, 0, 0) > 0) {
                 _ = c.TranslateMessage(&msg);
@@ -199,11 +183,10 @@ pub export fn wWinMain(
             }
         }
 
-        const r = ggUpdate(engine);
-        switch (r) {
-            0 => {},
-            1 => return 0,
-            else => return 1,
+        switch (rt.update()) {
+            .@"continue" => {},
+            .quit => return 0,
+            else => |r| return r,
         }
     }
     return 0;

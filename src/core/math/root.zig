@@ -17,20 +17,10 @@ pub inline fn color4(r: f32, g: f32, b: f32, a: f32) Color4 {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }
 
-pub const Color4 = extern struct {
-    r: f32,
-    g: f32,
-    b: f32,
-    a: f32,
-};
+pub const Color4 = extern struct { r: f32, g: f32, b: f32, a: f32 };
+pub const Color3 = extern struct { r: f32, g: f32, b: f32 };
+pub const TexCoords = extern struct { u: f32, v: f32 };
 
-pub const Color3 = extern struct {
-    r: f32,
-    g: f32,
-    b: f32,
-};
-
-pub const TexCoords = extern struct {
-    u: f32,
-    v: f32,
-};
+pub inline fn expDecay(a: f32, b: f32, decay: f32, dt: f32) f32 {
+    return b + (a - b) * @exp(-decay * dt);
+}

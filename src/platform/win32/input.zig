@@ -182,8 +182,10 @@ pub const Mouse = struct {
 
     events: std.AutoArrayHashMap(Button, Event),
     buttons: std.AutoArrayHashMap(Button, bool),
+
     is_hovering: bool,
     pos: struct { x: u16, y: u16 },
+    wheel_delta: f32,
 
     pub inline fn getButton(self: *Mouse, mb: Button) bool {
         return self.buttons.get(mb) orelse false;
@@ -204,18 +206,12 @@ pub const Mouse = struct {
         return event == .dblclk;
     }
 
-    pub inline fn getWheelUp(self: *Mouse, mb: Button) bool {
-        // TODO
-        _ = self;
-        _ = mb;
-        return false;
+    pub inline fn getWheelUp(self: *Mouse) bool {
+        return self.wheel_delta > 0;
     }
 
-    pub inline fn getWheelDown(self: *Mouse, mb: Button) bool {
-        // TODO
-        _ = self;
-        _ = mb;
-        return false;
+    pub inline fn getWheelDown(self: *Mouse) bool {
+        return self.wheel_delta < 0;
     }
 
     pub inline fn setButtonUp(self: *Mouse, mb: Button) !void {
@@ -245,6 +241,7 @@ pub fn init(allocator: std.mem.Allocator) Input {
             .events = std.AutoArrayHashMap(Mouse.Button, Mouse.Event).init(allocator),
             .pos = .{ .x = 0, .y = 0 },
             .is_hovering = false,
+            .wheel_delta = 0,
         },
     };
 }

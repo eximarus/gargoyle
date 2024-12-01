@@ -247,8 +247,8 @@ pub inline fn result(r: c.VkResult) Result {
 //      'vkCmdPipelineBarrier2',
 //      'vkCmdClearColorImage',
 //      'vkEndCommandBuffer',
-//      'vkCmdCopyBuffer',
-//      'vkCmdBlitImage2KHR',
+//      'vkCmdCopyBuffer2',
+//      'vkCmdBlitImage2',
 //      'vkCmdBindPipeline',
 //      'vkCmdBindIndexBuffer',
 //      'vkCmdBindDescriptorSets',
@@ -262,50 +262,9 @@ pub inline fn result(r: c.VkResult) Result {
 //      'vkCmdPushConstants',
 //      'vkCmdSetLineWidth',
 //      'vkCmdSetDepthBounds',
-//      'vkCmdBindShadersEXT',
-//      'vkCmdBindVertexBuffers2EXT',
-//      'vkCmdSetAlphaToCoverageEnableEXT',
-//      'vkCmdSetAlphaToOneEnableEXT',
-//      'vkCmdSetColorBlendEnableEXT',
-//      'vkCmdSetColorBlendEquationEXT',
-//      'vkCmdSetColorWriteMaskEXT',
-//      'vkCmdSetCullModeEXT',
-//      'vkCmdSetDepthBiasEnableEXT',
-//      'vkCmdSetDepthBoundsTestEnableEXT',
-//      'vkCmdSetDepthClampEnableEXT',
-//      'vkCmdSetDepthCompareOpEXT',
-//      'vkCmdSetDepthTestEnableEXT',
-//      'vkCmdSetDepthWriteEnableEXT',
-//      'vkCmdSetFrontFaceEXT',
-//      'vkCmdSetLogicOpEXT',
-//      'vkCmdSetLogicOpEnableEXT',
-//      'vkCmdSetPatchControlPointsEXT',
-//      'vkCmdSetPolygonModeEXT',
-//      'vkCmdSetPrimitiveRestartEnableEXT',
-//      'vkCmdSetPrimitiveTopologyEXT',
-//      'vkCmdSetRasterizationSamplesEXT',
-//      'vkCmdSetRasterizerDiscardEnableEXT',
-//      'vkCmdSetSampleMaskEXT',
-//      'vkCmdSetScissorWithCountEXT',
-//      'vkCmdSetStencilOpEXT',
-//      'vkCmdSetStencilTestEnableEXT',
-//      'vkCmdSetTessellationDomainOriginEXT',
-//      'vkCmdSetVertexInputEXT',
-//      'vkCmdSetViewportWithCountEXT',
-//      'vkCreateShadersEXT',
-//      'vkDestroyShaderEXT',
-//      'vkGetShaderBinaryDataEXT',
-//      'vkCmdBindDescriptorBufferEmbeddedSamplersEXT',
-//      'vkCmdBindDescriptorBuffersEXT',
-//      'vkCmdSetDescriptorBufferOffsetsEXT',
-//      'vkGetBufferOpaqueCaptureDescriptorDataEXT',
-//      'vkGetDescriptorEXT',
-//      'vkGetDescriptorSetLayoutBindingOffsetEXT',
-//      'vkGetDescriptorSetLayoutSizeEXT',
-//      'vkGetImageOpaqueCaptureDescriptorDataEXT',
-//      'vkGetImageViewOpaqueCaptureDescriptorDataEXT',
-//      'vkGetSamplerOpaqueCaptureDescriptorDataEXT',
-//      'vkCmdCopyBufferToImage',
+//      'vkCmdCopyBufferToImage2',
+//      'vkCmdDrawIndexedIndirect',
+//      'vkCmdDrawIndexedIndirectCount',
 //  ]
 //  all = global_defs + instance_defs + device_defs
 //]]]
@@ -389,8 +348,8 @@ pub var resetCommandBuffer: PFN(c.PFN_vkResetCommandBuffer) = undefined;
 pub var cmdPipelineBarrier2: PFN(c.PFN_vkCmdPipelineBarrier2) = undefined;
 pub var cmdClearColorImage: PFN(c.PFN_vkCmdClearColorImage) = undefined;
 pub var endCommandBuffer: PFN(c.PFN_vkEndCommandBuffer) = undefined;
-pub var cmdCopyBuffer: PFN(c.PFN_vkCmdCopyBuffer) = undefined;
-pub var cmdBlitImage2KHR: PFN(c.PFN_vkCmdBlitImage2KHR) = undefined;
+pub var cmdCopyBuffer2: PFN(c.PFN_vkCmdCopyBuffer2) = undefined;
+pub var cmdBlitImage2: PFN(c.PFN_vkCmdBlitImage2) = undefined;
 pub var cmdBindPipeline: PFN(c.PFN_vkCmdBindPipeline) = undefined;
 pub var cmdBindIndexBuffer: PFN(c.PFN_vkCmdBindIndexBuffer) = undefined;
 pub var cmdBindDescriptorSets: PFN(c.PFN_vkCmdBindDescriptorSets) = undefined;
@@ -404,50 +363,9 @@ pub var cmdEndRendering: PFN(c.PFN_vkCmdEndRendering) = undefined;
 pub var cmdPushConstants: PFN(c.PFN_vkCmdPushConstants) = undefined;
 pub var cmdSetLineWidth: PFN(c.PFN_vkCmdSetLineWidth) = undefined;
 pub var cmdSetDepthBounds: PFN(c.PFN_vkCmdSetDepthBounds) = undefined;
-pub var cmdBindShadersEXT: PFN(c.PFN_vkCmdBindShadersEXT) = undefined;
-pub var cmdBindVertexBuffers2EXT: PFN(c.PFN_vkCmdBindVertexBuffers2EXT) = undefined;
-pub var cmdSetAlphaToCoverageEnableEXT: PFN(c.PFN_vkCmdSetAlphaToCoverageEnableEXT) = undefined;
-pub var cmdSetAlphaToOneEnableEXT: PFN(c.PFN_vkCmdSetAlphaToOneEnableEXT) = undefined;
-pub var cmdSetColorBlendEnableEXT: PFN(c.PFN_vkCmdSetColorBlendEnableEXT) = undefined;
-pub var cmdSetColorBlendEquationEXT: PFN(c.PFN_vkCmdSetColorBlendEquationEXT) = undefined;
-pub var cmdSetColorWriteMaskEXT: PFN(c.PFN_vkCmdSetColorWriteMaskEXT) = undefined;
-pub var cmdSetCullModeEXT: PFN(c.PFN_vkCmdSetCullModeEXT) = undefined;
-pub var cmdSetDepthBiasEnableEXT: PFN(c.PFN_vkCmdSetDepthBiasEnableEXT) = undefined;
-pub var cmdSetDepthBoundsTestEnableEXT: PFN(c.PFN_vkCmdSetDepthBoundsTestEnableEXT) = undefined;
-pub var cmdSetDepthClampEnableEXT: PFN(c.PFN_vkCmdSetDepthClampEnableEXT) = undefined;
-pub var cmdSetDepthCompareOpEXT: PFN(c.PFN_vkCmdSetDepthCompareOpEXT) = undefined;
-pub var cmdSetDepthTestEnableEXT: PFN(c.PFN_vkCmdSetDepthTestEnableEXT) = undefined;
-pub var cmdSetDepthWriteEnableEXT: PFN(c.PFN_vkCmdSetDepthWriteEnableEXT) = undefined;
-pub var cmdSetFrontFaceEXT: PFN(c.PFN_vkCmdSetFrontFaceEXT) = undefined;
-pub var cmdSetLogicOpEXT: PFN(c.PFN_vkCmdSetLogicOpEXT) = undefined;
-pub var cmdSetLogicOpEnableEXT: PFN(c.PFN_vkCmdSetLogicOpEnableEXT) = undefined;
-pub var cmdSetPatchControlPointsEXT: PFN(c.PFN_vkCmdSetPatchControlPointsEXT) = undefined;
-pub var cmdSetPolygonModeEXT: PFN(c.PFN_vkCmdSetPolygonModeEXT) = undefined;
-pub var cmdSetPrimitiveRestartEnableEXT: PFN(c.PFN_vkCmdSetPrimitiveRestartEnableEXT) = undefined;
-pub var cmdSetPrimitiveTopologyEXT: PFN(c.PFN_vkCmdSetPrimitiveTopologyEXT) = undefined;
-pub var cmdSetRasterizationSamplesEXT: PFN(c.PFN_vkCmdSetRasterizationSamplesEXT) = undefined;
-pub var cmdSetRasterizerDiscardEnableEXT: PFN(c.PFN_vkCmdSetRasterizerDiscardEnableEXT) = undefined;
-pub var cmdSetSampleMaskEXT: PFN(c.PFN_vkCmdSetSampleMaskEXT) = undefined;
-pub var cmdSetScissorWithCountEXT: PFN(c.PFN_vkCmdSetScissorWithCountEXT) = undefined;
-pub var cmdSetStencilOpEXT: PFN(c.PFN_vkCmdSetStencilOpEXT) = undefined;
-pub var cmdSetStencilTestEnableEXT: PFN(c.PFN_vkCmdSetStencilTestEnableEXT) = undefined;
-pub var cmdSetTessellationDomainOriginEXT: PFN(c.PFN_vkCmdSetTessellationDomainOriginEXT) = undefined;
-pub var cmdSetVertexInputEXT: PFN(c.PFN_vkCmdSetVertexInputEXT) = undefined;
-pub var cmdSetViewportWithCountEXT: PFN(c.PFN_vkCmdSetViewportWithCountEXT) = undefined;
-pub var createShadersEXT: PFN(c.PFN_vkCreateShadersEXT) = undefined;
-pub var destroyShaderEXT: PFN(c.PFN_vkDestroyShaderEXT) = undefined;
-pub var getShaderBinaryDataEXT: PFN(c.PFN_vkGetShaderBinaryDataEXT) = undefined;
-pub var cmdBindDescriptorBufferEmbeddedSamplersEXT: PFN(c.PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT) = undefined;
-pub var cmdBindDescriptorBuffersEXT: PFN(c.PFN_vkCmdBindDescriptorBuffersEXT) = undefined;
-pub var cmdSetDescriptorBufferOffsetsEXT: PFN(c.PFN_vkCmdSetDescriptorBufferOffsetsEXT) = undefined;
-pub var getBufferOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetBufferOpaqueCaptureDescriptorDataEXT) = undefined;
-pub var getDescriptorEXT: PFN(c.PFN_vkGetDescriptorEXT) = undefined;
-pub var getDescriptorSetLayoutBindingOffsetEXT: PFN(c.PFN_vkGetDescriptorSetLayoutBindingOffsetEXT) = undefined;
-pub var getDescriptorSetLayoutSizeEXT: PFN(c.PFN_vkGetDescriptorSetLayoutSizeEXT) = undefined;
-pub var getImageOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetImageOpaqueCaptureDescriptorDataEXT) = undefined;
-pub var getImageViewOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetImageViewOpaqueCaptureDescriptorDataEXT) = undefined;
-pub var getSamplerOpaqueCaptureDescriptorDataEXT: PFN(c.PFN_vkGetSamplerOpaqueCaptureDescriptorDataEXT) = undefined;
-pub var cmdCopyBufferToImage: PFN(c.PFN_vkCmdCopyBufferToImage) = undefined;
+pub var cmdCopyBufferToImage2: PFN(c.PFN_vkCmdCopyBufferToImage2) = undefined;
+pub var cmdDrawIndexedIndirect: PFN(c.PFN_vkCmdDrawIndexedIndirect) = undefined;
+pub var cmdDrawIndexedIndirectCount: PFN(c.PFN_vkCmdDrawIndexedIndirectCount) = undefined;
 //[[[end]]]
 
 pub fn loadGlobalFunctions() void {
@@ -550,8 +468,8 @@ pub fn loadDeviceFunctions(device: c.VkDevice) void {
     getDeviceProcAddr(device, "vkCmdPipelineBarrier2");
     getDeviceProcAddr(device, "vkCmdClearColorImage");
     getDeviceProcAddr(device, "vkEndCommandBuffer");
-    getDeviceProcAddr(device, "vkCmdCopyBuffer");
-    getDeviceProcAddr(device, "vkCmdBlitImage2KHR");
+    getDeviceProcAddr(device, "vkCmdCopyBuffer2");
+    getDeviceProcAddr(device, "vkCmdBlitImage2");
     getDeviceProcAddr(device, "vkCmdBindPipeline");
     getDeviceProcAddr(device, "vkCmdBindIndexBuffer");
     getDeviceProcAddr(device, "vkCmdBindDescriptorSets");
@@ -565,49 +483,8 @@ pub fn loadDeviceFunctions(device: c.VkDevice) void {
     getDeviceProcAddr(device, "vkCmdPushConstants");
     getDeviceProcAddr(device, "vkCmdSetLineWidth");
     getDeviceProcAddr(device, "vkCmdSetDepthBounds");
-    getDeviceProcAddr(device, "vkCmdBindShadersEXT");
-    getDeviceProcAddr(device, "vkCmdBindVertexBuffers2EXT");
-    getDeviceProcAddr(device, "vkCmdSetAlphaToCoverageEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetAlphaToOneEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetColorBlendEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetColorBlendEquationEXT");
-    getDeviceProcAddr(device, "vkCmdSetColorWriteMaskEXT");
-    getDeviceProcAddr(device, "vkCmdSetCullModeEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthBiasEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthBoundsTestEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthClampEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthCompareOpEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthTestEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetDepthWriteEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetFrontFaceEXT");
-    getDeviceProcAddr(device, "vkCmdSetLogicOpEXT");
-    getDeviceProcAddr(device, "vkCmdSetLogicOpEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetPatchControlPointsEXT");
-    getDeviceProcAddr(device, "vkCmdSetPolygonModeEXT");
-    getDeviceProcAddr(device, "vkCmdSetPrimitiveRestartEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetPrimitiveTopologyEXT");
-    getDeviceProcAddr(device, "vkCmdSetRasterizationSamplesEXT");
-    getDeviceProcAddr(device, "vkCmdSetRasterizerDiscardEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetSampleMaskEXT");
-    getDeviceProcAddr(device, "vkCmdSetScissorWithCountEXT");
-    getDeviceProcAddr(device, "vkCmdSetStencilOpEXT");
-    getDeviceProcAddr(device, "vkCmdSetStencilTestEnableEXT");
-    getDeviceProcAddr(device, "vkCmdSetTessellationDomainOriginEXT");
-    getDeviceProcAddr(device, "vkCmdSetVertexInputEXT");
-    getDeviceProcAddr(device, "vkCmdSetViewportWithCountEXT");
-    getDeviceProcAddr(device, "vkCreateShadersEXT");
-    getDeviceProcAddr(device, "vkDestroyShaderEXT");
-    getDeviceProcAddr(device, "vkGetShaderBinaryDataEXT");
-    getDeviceProcAddr(device, "vkCmdBindDescriptorBufferEmbeddedSamplersEXT");
-    getDeviceProcAddr(device, "vkCmdBindDescriptorBuffersEXT");
-    getDeviceProcAddr(device, "vkCmdSetDescriptorBufferOffsetsEXT");
-    getDeviceProcAddr(device, "vkGetBufferOpaqueCaptureDescriptorDataEXT");
-    getDeviceProcAddr(device, "vkGetDescriptorEXT");
-    getDeviceProcAddr(device, "vkGetDescriptorSetLayoutBindingOffsetEXT");
-    getDeviceProcAddr(device, "vkGetDescriptorSetLayoutSizeEXT");
-    getDeviceProcAddr(device, "vkGetImageOpaqueCaptureDescriptorDataEXT");
-    getDeviceProcAddr(device, "vkGetImageViewOpaqueCaptureDescriptorDataEXT");
-    getDeviceProcAddr(device, "vkGetSamplerOpaqueCaptureDescriptorDataEXT");
-    getDeviceProcAddr(device, "vkCmdCopyBufferToImage");
+    getDeviceProcAddr(device, "vkCmdCopyBufferToImage2");
+    getDeviceProcAddr(device, "vkCmdDrawIndexedIndirect");
+    getDeviceProcAddr(device, "vkCmdDrawIndexedIndirectCount");
     //[[[end]]]
 }

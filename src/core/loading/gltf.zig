@@ -397,7 +397,7 @@ pub fn load(path: []const u8, arena: std.mem.Allocator) !Glb {
     };
 }
 
-pub inline fn readVertex(
+pub inline fn readVertexAttr(
     bin: []const u8,
     buffer_views: []BufferView,
     acc: Accessor,

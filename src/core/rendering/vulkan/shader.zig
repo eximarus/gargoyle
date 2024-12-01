@@ -4,46 +4,89 @@ const vk = @import("vulkan.zig");
 const types = @import("types.zig");
 const resources = @import("resources.zig");
 
-pub const DescriptorSet = struct {
+pub const DescriptorSetLayout = struct {
     layout: c.VkDescriptorSetLayout,
     size: c.VkDeviceSize,
     offset: c.VkDeviceSize,
 };
 
-pub const GraphicsShader = struct {
-    vs: c.VkShaderEXT,
-    fs: c.VkShaderEXT,
-    pipeline_layout: c.VkPipelineLayout,
-    descriptor_set: DescriptorSet,
+pub const Shader = struct {
+    const Graphics = struct {
+        vs: c.VkShaderEXT,
+        fs: c.VkShaderEXT,
+        descriptor_set_layouts: []DescriptorSetLayout,
+        pipeline_layout: c.VkPipelineLayout,
+    };
 
-    pub inline fn bind(self: GraphicsShader, cmd: c.VkCommandBuffer) void {
+    const Compute = struct {
+        shader: c.VkShaderEXT,
+        pipeline_layout: c.VkPipelineLayout,
+        // descriptor_set_layouts: []DescriptorSetLayout,
+    };
+
+    gfx: Graphics,
+    comp: Compute,
+
+    pub inline fn bind(self: Shader, cmd: c.VkCommandBuffer) void {
+        const stage_count = 5;
         vk.cmdBindShadersEXT(
             cmd,
-            4,
-            &[4]c.VkShaderStageFlagBits{
+            stage_count,
+            &[stage_count]c.VkShaderStageFlagBits{
                 c.VK_SHADER_STAGE_VERTEX_BIT,
                 c.VK_SHADER_STAGE_FRAGMENT_BIT,
+                c.VK_SHADER_STAGE_COMPUTE_BIT,
                 // when mesh shaders are enabled it is required,
                 // to provide mesh and task stages even if they are not used
                 c.VK_SHADER_STAGE_TASK_BIT_EXT,
                 c.VK_SHADER_STAGE_MESH_BIT_EXT,
             },
-            &[4]c.VkShaderEXT{
-                self.vs,
-                self.fs,
+            &[stage_count]c.VkShaderEXT{
+                self.gfx.vs,
+                self.gfx.fs,
+                self.comp.shader,
                 @ptrCast(c.VK_NULL_HANDLE),
                 @ptrCast(c.VK_NULL_HANDLE),
             },
         );
     }
 
-    pub inline fn destroy(self: GraphicsShader, device: c.VkDevice) void {
-        vk.destroyShaderEXT(device, self.vs, null);
-        vk.destroyShaderEXT(device, self.fs, null);
-        vk.destroyDescriptorSetLayout(device, self.descriptor_set_layout, null);
-        vk.destroyPipelineLayout(device, self.pipeline_layout, null);
-    }
+    // pub inline fn destroy(self: GraphicsShader, device: c.VkDevice) void {
+    //     vk.destroyShaderEXT(device, self.vs, null);
+    //     vk.destroyShaderEXT(device, self.fs, null);
+    //     vk.destroyDescriptorSetLayout(device, self.descriptor_set_layout, null);
+    //     vk.destroyPipelineLayout(device, self.pipeline_layout, null);
+    // }
 };
+
+fn createBindlessDescriptorSetLayout(
+    device: c.VkDevice,
+    bindings: []c.VkDescriptorSetLayoutBinding,
+) !c.VkDescriptorSetLayout {
+    var descriptor_set_layout: c.VkDescriptorSetLayout = undefined;
+    try vk.check(vk.createDescriptorSetLayout(
+        device,
+        &c.VkDescriptorSetLayoutCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = &c.VkDescriptorSetLayoutBindingFlagsCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+                .bindingCount = 1,
+                .pBindingFlags = &c.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+                    c.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+                    c.VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT,
+            },
+            .flags =
+            // TODO not sure if this is needed or even legal
+            // c.VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT |
+            c.VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
+            .bindingCount = bindings.len,
+            .pBindings = bindings.ptr,
+        },
+        null,
+        &descriptor_set_layout,
+    ));
+    return descriptor_set_layout;
+}
 
 pub fn create(
     comptime path: []const u8,
@@ -53,8 +96,9 @@ pub fn create(
     options: struct {
         vs_main: c.String = "vsMain",
         fs_main: c.String = "fsMain",
+        comp_main: c.String = "compMain",
     },
-) !GraphicsShader {
+) !Shader {
     const f = try std.fs.cwd().openFile(path, .{});
     defer f.close();
 
@@ -74,56 +118,46 @@ pub fn create(
         .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
     };
 
-    var descriptor_layout: c.VkDescriptorSetLayout = undefined;
-    try vk.check(vk.createDescriptorSetLayout(
+    var descriptor_set_layout = try createBindlessDescriptorSetLayout(
         device,
-        &c.VkDescriptorSetLayoutCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .flags = c.VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT,
-            .bindingCount = 1,
-            .pBindings = &c.VkDescriptorSetLayoutBinding{
+        &[_]c.VkDescriptorSetLayoutBinding{
+            c.VkDescriptorSetLayoutBinding{
                 .binding = 0,
-                .descriptorCount = 1,
+                .descriptorCount = std.math.maxInt(u16),
                 .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
             },
         },
-        null,
-        &descriptor_layout,
-    ));
+    );
 
-    var shaders: [2]c.VkShaderEXT = undefined;
+    var vs_create_info = c.VkShaderCreateInfoEXT{
+        .sType = c.VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
+        .flags = c.VK_SHADER_CREATE_LINK_STAGE_BIT_EXT,
+        .codeType = c.VK_SHADER_CODE_TYPE_SPIRV_EXT,
+        .codeSize = @intCast(size),
+        .pCode = @ptrCast(shader_code.ptr),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pc_range,
+        .setLayoutCount = 1,
+        .pSetLayouts = &descriptor_set_layout,
+    };
+    var fs_create_info = vs_create_info;
+
+    vs_create_info.stage = c.VK_SHADER_STAGE_VERTEX_BIT;
+    vs_create_info.nextStage = c.VK_SHADER_STAGE_FRAGMENT_BIT;
+    vs_create_info.pName = options.vs_main;
+
+    fs_create_info.stage = c.VK_SHADER_STAGE_FRAGMENT_BIT;
+    fs_create_info.pName = options.fs_main;
+
+    const shader_count = 2;
+    var shaders: [shader_count]c.VkShaderEXT = undefined;
     try vk.check(vk.createShadersEXT(
         device,
-        2,
-        &[2]c.VkShaderCreateInfoEXT{
-            c.VkShaderCreateInfoEXT{
-                .sType = c.VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
-                .flags = c.VK_SHADER_CREATE_LINK_STAGE_BIT_EXT,
-                .codeType = c.VK_SHADER_CODE_TYPE_SPIRV_EXT,
-                .codeSize = @intCast(size),
-                .pCode = @ptrCast(shader_code.ptr),
-                .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
-                .nextStage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-                .pName = options.vs_main,
-                .pushConstantRangeCount = 1,
-                .pPushConstantRanges = &pc_range,
-                .setLayoutCount = 1,
-                .pSetLayouts = &descriptor_layout,
-            },
-            c.VkShaderCreateInfoEXT{
-                .sType = c.VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
-                .flags = c.VK_SHADER_CREATE_LINK_STAGE_BIT_EXT,
-                .codeType = c.VK_SHADER_CODE_TYPE_SPIRV_EXT,
-                .codeSize = @intCast(size),
-                .pCode = @ptrCast(shader_code.ptr),
-                .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-                .pName = options.fs_main,
-                .pushConstantRangeCount = 1,
-                .pPushConstantRanges = &pc_range,
-                .setLayoutCount = 1,
-                .pSetLayouts = &descriptor_layout,
-            },
+        shader_count,
+        &[shader_count]c.VkShaderCreateInfoEXT{
+            vs_create_info,
+            fs_create_info,
         },
         null,
         &shaders,
@@ -135,27 +169,29 @@ pub fn create(
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pc_range,
         .setLayoutCount = 1,
-        .pSetLayouts = &descriptor_layout,
+        .pSetLayouts = &descriptor_set_layout,
     }, null, &layout));
 
-    var descriptor_size: c.VkDeviceSize = undefined;
+    var descriptor_set_layout_size: c.VkDeviceSize = undefined;
     vk.getDescriptorSetLayoutSizeEXT(
         device,
-        descriptor_layout,
-        &descriptor_size,
+        descriptor_set_layout,
+        &descriptor_set_layout_size,
     );
 
-    var descriptor_offset: c.VkDeviceSize = undefined;
-    vk.getDescriptorSetLayoutBindingOffsetEXT(device, descriptor_layout, 0, &descriptor_offset);
+    var descriptor_set_layout_offset: c.VkDeviceSize = undefined;
+    vk.getDescriptorSetLayoutBindingOffsetEXT(device, descriptor_set_layout, 0, &descriptor_set_layout_offset);
 
-    return GraphicsShader{
+    return Shader{
         .vs = shaders[0],
         .fs = shaders[1],
-        .pipeline_layout = layout,
-        .descriptor_set = DescriptorSet{
-            .layout = descriptor_layout,
-            .size = alignedSize(descriptor_size, descriptorBufferOffsetAlignment),
-            .offset = descriptor_offset,
+        .gfx_pipeline_layout = layout,
+        .descriptor_sets = &[_]DescriptorSetLayout{
+            DescriptorSetLayout{
+                .layout = descriptor_set_layout,
+                .size = alignedSize(descriptor_set_layout_size, descriptorBufferOffsetAlignment),
+                .offset = descriptor_set_layout_offset,
+            },
         },
     };
 }
@@ -166,12 +202,12 @@ inline fn alignedSize(value: c.VkDeviceSize, alignment: c.VkDeviceSize) c.VkDevi
 
 pub inline fn createDescriptorBuffer(
     device: c.VkDevice,
-    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
-    descriptor_set: DescriptorSet,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    descriptor_set: DescriptorSetLayout,
 ) !resources.Buffer {
     return resources.createBuffer(
         device,
-        gpu_mem_props,
+        physical_device_mem_props,
         descriptor_set.size,
         c.VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
             c.VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |

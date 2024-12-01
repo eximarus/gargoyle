@@ -4,16 +4,21 @@ const vk = @import("vulkan.zig");
 const math = @import("../../root.zig").math;
 
 pub const Mesh = struct {
+    pub const Bounds = struct {
+        min: math.Vec3,
+        max: math.Vec3,
+        origin: math.Vec3,
+        extents: math.Vec3,
+    };
+
     index_buffer: Buffer,
     vertex_buffer: Buffer,
     vb_addr: c.VkDeviceAddress,
-    name: ?[]const u8,
-    bounds: struct {
-        min: math.Vec3,
-        max: math.Vec3,
-        center: math.Vec3,
-    },
+    name: ?[]const u8 = null,
+    bounds: Bounds,
 };
+
+pub const Material = struct {};
 
 pub const Texture2D = struct {
     extent: c.VkExtent2D,
@@ -94,7 +99,7 @@ pub fn createImage(
     extent: c.VkExtent3D,
     usage_flags: c.VkImageUsageFlags,
     aspect_flags: c.VkImageAspectFlags,
-    gpu_mem_props: c.VkPhysicalDeviceMemoryProperties,
+    physical_device_mem_props: c.VkPhysicalDeviceMemoryProperties,
     image_mem_props: c.VkMemoryPropertyFlags,
 ) !Image {
     var new_image = Image{
@@ -129,7 +134,7 @@ pub fn createImage(
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = req.size,
         .memoryTypeIndex = try findMemoryType(
-            gpu_mem_props,
+            physical_device_mem_props,
             req.memoryTypeBits,
             image_mem_props,
         ),
