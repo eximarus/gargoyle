@@ -102,7 +102,7 @@ pub fn createGraphics(
             c.VkDescriptorSetLayoutBinding{
                 .binding = 0,
                 .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = std.math.maxInt(u16),
+                .descriptorCount = vk.max_bindless_resources,
                 .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
             },
         },

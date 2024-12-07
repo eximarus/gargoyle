@@ -214,15 +214,19 @@ pub fn init(
         self.imm_cmd,
     );
 
+    const pool_sizes = [_]c.VkDescriptorPoolSize{
+        c.VkDescriptorPoolSize{
+            .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = vk.max_bindless_resources,
+        },
+    };
+
     try vk.check(vk.createDescriptorPool(self.device, &c.VkDescriptorPoolCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .flags = c.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
-        .maxSets = std.math.maxInt(u16) * 1, // * poolSizeCount
-        .poolSizeCount = 1,
-        .pPoolSizes = &c.VkDescriptorPoolSize{
-            .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = std.math.maxInt(u16),
-        },
+        .maxSets = @intCast(vk.max_bindless_resources * pool_sizes.len),
+        .poolSizeCount = @intCast(pool_sizes.len),
+        .pPoolSizes = &pool_sizes,
     }, null, &self.test_descriptor_pool));
 
     try vk.check(vk.allocateDescriptorSets(self.device, &c.VkDescriptorSetAllocateInfo{
@@ -230,7 +234,7 @@ pub fn init(
         .pNext = &c.VkDescriptorSetVariableDescriptorCountAllocateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
             .descriptorSetCount = 1,
-            .pDescriptorCounts = @ptrCast(&(@as(u32, @intCast(std.math.maxInt(u16))) - 1)),
+            .pDescriptorCounts = @ptrCast(&(vk.max_bindless_resources - 1)),
         },
         .descriptorPool = self.test_descriptor_pool,
         .descriptorSetCount = @intCast(self.test_pipeline.descriptor_set_layouts.len),
@@ -241,7 +245,7 @@ pub fn init(
         .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = self.test_descriptor_set,
         .dstBinding = 0,
-        // .dstArrayElement = 0,
+        .dstArrayElement = 0,
         .descriptorCount = 1,
         .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .pImageInfo = &c.VkDescriptorImageInfo{

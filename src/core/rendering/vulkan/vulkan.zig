@@ -9,6 +9,8 @@ pub const validation_layers: []const c.String = &.{
 };
 pub const enable_validation_layers = builtin.mode == .Debug;
 
+pub const max_bindless_resources: u32 = @intCast(std.math.maxInt(u16));
+
 fn PFN(comptime T: type) type {
     return @typeInfo(T).Optional.child;
 }
