@@ -23,37 +23,10 @@ pub fn build(b: *std.Build) !void {
     });
     c_mod.addIncludePath(vulkan_dep.path("include"));
 
-    // const fbx_sdk_dir = b.graph.env_map.get("FBX_SDK_DIR") orelse return error.FbxSdkNotFound;
-    //
-    // const fbx_lib = b.addStaticLibrary(.{
-    //     .name = "fbx-loader",
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // fbx_lib.linkLibCpp();
-    // fbx_lib.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "lib", "x64", "release" }) });
-    // fbx_lib.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "include" }) });
-    // fbx_lib.linkSystemLibrary("libfbxsdk");
-    // fbx_lib.addIncludePath(b.path("src/core/loading/fbx"));
-    // fbx_lib.addCSourceFile(.{
-    //     .file = b.path("src/core/loading/fbx/fbx.cpp"),
-    //     .flags = &.{"-std=c++17"},
-    // });
-    //
-    // c_mod.linkLibrary(fbx_lib);
-    // c_mod.addIncludePath(b.path("src/core/loading/fbx"));
-    // c_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ fbx_sdk_dir, "lib", "x64", "release" }) });
-
     const rt_types = b.addModule("rt_types", .{
         .target = target,
         .optimize = optimize,
         .root_source_file = b.path("src/runtime/types.zig"),
-    });
-
-    const rt_mod = b.addModule("runtime", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/runtime/rt.zig"),
     });
 
     const platform_mod = b.addModule("platform", .{
@@ -62,7 +35,6 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/platform/win32/root.zig"),
         .imports = &.{
             .{ .name = "c", .module = c_mod },
-            .{ .name = "runtime", .module = rt_mod },
         },
     });
 
@@ -91,6 +63,15 @@ pub fn build(b: *std.Build) !void {
 
     b.installArtifact(lib);
 
+    const rt_mod = b.addModule("runtime", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/runtime/rt.zig"),
+        .imports = &.{
+            .{ .name = "platform", .module = platform_mod },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = app_name,
         .target = target,
@@ -98,6 +79,8 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/platform/win32/main.zig"),
     });
     exe.root_module.addImport("c", c_mod);
+    exe.root_module.addImport("platform", platform_mod);
+    exe.root_module.addImport("runtime", rt_mod);
     b.installArtifact(exe);
 
     // const exe_unit_tests = b.addTest(.{
@@ -185,7 +168,6 @@ pub fn buildWin32(
     });
 
     const gargoyle_mod = dep.module("gargoyle");
-    gargoyle_mod.addImport("app", options.app_mod);
     options.app_mod.addImport("gargoyle", gargoyle_mod);
 
     const install_options = std.Build.Step.InstallArtifact.Options{
@@ -198,6 +180,8 @@ pub fn buildWin32(
     });
 
     const lib = dep.artifact("gargoyle");
+    lib.root_module.addImport("app", options.app_mod);
+
     const lib_output = b.addInstallArtifact(lib, install_options);
     b.getInstallStep().dependOn(&lib_output.step);
 

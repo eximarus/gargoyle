@@ -1,15 +1,10 @@
 const std = @import("std");
 const c = @import("c");
-const core = @import("../../root.zig");
-const time = core.time;
-const math = core.math;
 
 const vk = @import("vulkan.zig");
-const common = @import("common.zig");
 const resources = @import("resources.zig");
-const Shader = @import("shader.zig").Shader;
+const Pipeline = @import("pipeline.zig").Pipeline;
 const types = @import("types.zig");
-const VulkanRenderer = @import("VulkanRenderer.zig");
 
 pub inline fn transitionImage(
     cmd: c.VkCommandBuffer,
@@ -51,11 +46,10 @@ pub fn graphics(
     draw_extent: c.VkExtent2D,
     draw_image: resources.Image,
     depth_image: resources.Image,
-    shader: Shader,
+    pipeline: Pipeline,
     push_constants: types.PushConstants,
     index_buffer: resources.Buffer,
-    descriptor_buffer: resources.Buffer,
-    descriptor_buffer_addr: c.VkDeviceAddress,
+    descriptor_set: c.VkDescriptorSet,
 ) void {
     vk.cmdBeginRendering(cmd, &c.VkRenderingInfo{
         .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
@@ -86,34 +80,27 @@ pub fn graphics(
             .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
             .clearValue = .{
                 .depthStencil = .{
-                    .depth = 1.0,
+                    .depth = 0.0,
+                    .stencil = 0,
                 },
             },
         },
     });
 
-    shader.bind(cmd);
-    vk.cmdDispatch(cmd, 128, 1, 1); // TODO
+    vk.cmdBindPipeline(cmd, pipeline.bind_point, pipeline.pipline);
 
     const viewport_height: f32 = @floatFromInt(draw_extent.height);
 
-    // vertex input state
-    vk.cmdSetVertexInputEXT(cmd, 0, &.{}, 0, &.{});
-
-    // input assembly state
-    vk.cmdSetPrimitiveTopologyEXT(cmd, c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    vk.cmdSetPrimitiveRestartEnableEXT(cmd, c.VK_FALSE);
-
-    // viewport state
-    vk.cmdSetViewportWithCountEXT(cmd, 1, &c.VkViewport{
+    vk.cmdSetViewport(cmd, 0, 1, &c.VkViewport{
         .x = 0,
         .y = viewport_height,
         .width = @floatFromInt(draw_extent.width),
         .height = -viewport_height,
-        .minDepth = 0.0,
-        .maxDepth = 1.0,
+        .minDepth = 1.0,
+        .maxDepth = 0.0,
     });
-    vk.cmdSetScissorWithCountEXT(cmd, 1, &c.VkRect2D{
+
+    vk.cmdSetScissor(cmd, 0, 1, &c.VkRect2D{
         .offset = .{ .x = 0, .y = 0 },
         .extent = .{
             .width = draw_extent.width,
@@ -121,92 +108,28 @@ pub fn graphics(
         },
     });
 
-    // vk.cmdBindDescriptorSets
-
-    // rasterization state
-    vk.cmdSetPolygonModeEXT(cmd, c.VK_POLYGON_MODE_FILL);
-    vk.cmdSetLineWidth(cmd, 1.0);
-    vk.cmdSetCullModeEXT(cmd, c.VK_CULL_MODE_BACK_BIT);
-    vk.cmdSetFrontFaceEXT(cmd, c.VK_FRONT_FACE_CLOCKWISE);
-    vk.cmdSetDepthBiasEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetRasterizerDiscardEnableEXT(cmd, c.VK_FALSE);
-
-    // multisample state
-    vk.cmdSetSampleMaskEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT, &[1]c.VkSampleMask{0xffffffff});
-    vk.cmdSetRasterizationSamplesEXT(cmd, c.VK_SAMPLE_COUNT_1_BIT);
-
-    vk.cmdSetAlphaToCoverageEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetAlphaToOneEnableEXT(cmd, c.VK_FALSE);
-
-    // color blend state
-    vk.cmdSetLogicOpEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetLogicOpEXT(cmd, c.VK_LOGIC_OP_COPY);
-    vk.cmdSetColorWriteMaskEXT(
-        cmd,
-        0,
-        1,
-        &[1]c.VkColorComponentFlagBits{c.VK_COLOR_COMPONENT_R_BIT |
-            c.VK_COLOR_COMPONENT_G_BIT |
-            c.VK_COLOR_COMPONENT_B_BIT |
-            c.VK_COLOR_COMPONENT_A_BIT},
-    );
-    vk.cmdSetColorBlendEnableEXT(cmd, 0, 1, &[1]c.VkBool32{c.VK_FALSE});
-    vk.cmdSetColorBlendEquationEXT(cmd, 0, 1, &c.VkColorBlendEquationEXT{});
-
-    // depth stencil state
-    vk.cmdSetDepthTestEnableEXT(cmd, c.VK_TRUE);
-    vk.cmdSetDepthWriteEnableEXT(cmd, c.VK_TRUE);
-    vk.cmdSetDepthCompareOpEXT(cmd, c.VK_COMPARE_OP_LESS);
-    vk.cmdSetDepthBoundsTestEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetStencilTestEnableEXT(cmd, c.VK_FALSE);
-    vk.cmdSetStencilOpEXT(
-        cmd,
-        c.VK_STENCIL_FACE_FRONT_BIT,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_COMPARE_OP_NEVER,
-    );
-    vk.cmdSetStencilOpEXT(
-        cmd,
-        c.VK_STENCIL_FACE_BACK_BIT,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_STENCIL_OP_KEEP,
-        c.VK_COMPARE_OP_NEVER,
-    );
-    vk.cmdSetDepthBounds(cmd, 0.0, 1.0);
-
     vk.cmdPushConstants(
         cmd,
-        shader.gfx.pipeline_layout,
+        pipeline.layout,
         c.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(types.PushConstants),
         &push_constants,
     );
 
-    _ = descriptor_buffer;
-    vk.cmdBindDescriptorBuffersEXT(cmd, 1, &c.VkDescriptorBufferBindingInfoEXT{
-        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT,
-        .usage = c.VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | c.VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT,
-        .address = descriptor_buffer_addr,
-    });
-
-    var buffer_offset: c.VkDeviceSize = 0;
-    vk.cmdSetDescriptorBufferOffsetsEXT(
+    vk.cmdBindDescriptorSets(
         cmd,
         c.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        shader.gfx.pipeline_layout,
+        pipeline.layout,
         0,
         1,
-        &@as(u32, 0),
-        &buffer_offset,
+        &descriptor_set,
+        0,
+        null,
     );
 
     vk.cmdBindIndexBuffer(cmd, index_buffer.buffer, 0, c.VK_INDEX_TYPE_UINT32);
-    // vk.cmdDrawIndexedIndirectCount();
-    // vk.cmdDrawIndexed(cmd, @intCast(index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
+    vk.cmdDrawIndexed(cmd, @intCast(index_buffer.size / @sizeOf(u32)), 1, 0, 0, 0);
     vk.cmdEndRendering(cmd);
 }
 
@@ -217,8 +140,8 @@ pub inline fn copyImageToImage(
     src_size: c.VkExtent2D,
     dst_size: c.VkExtent2D,
 ) void {
-    vk.cmdBlitImage2KHR(cmd, &.{
-        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2_KHR,
+    vk.cmdBlitImage2(cmd, &.{
+        .sType = c.VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
         .dstImage = dst,
         .dstImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         .srcImage = src,

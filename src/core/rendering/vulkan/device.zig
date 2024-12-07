@@ -36,6 +36,8 @@ pub fn create(
         .runtimeDescriptorArray = c.VK_TRUE,
         .descriptorBindingVariableDescriptorCount = c.VK_TRUE,
         .drawIndirectCount = c.VK_TRUE,
+
+        .descriptorBindingSampledImageUpdateAfterBind = c.VK_TRUE,
     };
 
     var features13 = c.VkPhysicalDeviceVulkan13Features{

@@ -2,7 +2,7 @@ const std = @import("std");
 const c = @import("c");
 
 const Runtime = @import("runtime");
-const platform = @import("root.zig");
+const platform = @import("platform");
 const Input = platform.Input;
 const Window = platform.Window;
 const WINAPI = std.os.windows.WINAPI;
@@ -17,7 +17,12 @@ pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param
                 input.kb.events.put(key_code, .down) catch {};
                 input.kb.keys.put(key_code, true) catch {};
             } else |err| {
-                std.log.debug("{}", .{err});
+                switch (err) {
+                    error.UnsupportedKey => {},
+                    // else => {
+                    //     std.log.debug("{}", .{err});
+                    // },
+                }
             }
         },
         c.WM_KEYUP => {
@@ -25,7 +30,12 @@ pub export fn WindowProc(hwnd: c.HWND, u_msg: c_uint, w_param: c.WPARAM, l_param
                 input.kb.events.put(key_code, .up) catch {};
                 input.kb.keys.put(key_code, false) catch {};
             } else |err| {
-                std.log.debug("{}", .{err});
+                switch (err) {
+                    error.UnsupportedKey => {},
+                    // else => {
+                    //     std.log.debug("{}", .{err});
+                    // },
+                }
             }
         },
         c.WM_MOUSEMOVE => {
@@ -165,7 +175,13 @@ pub export fn wWinMain(
         .input = &input,
     };
 
-    const rt = try Runtime.init(window, "gargoyle.dll");
+    var rt = Runtime.init(window, "gargoyle.dll") catch |err| {
+        std.log.err("caught error during runtime init: {}", .{err});
+        if (@errorReturnTrace()) |t| {
+            std.debug.dumpStackTrace(t.*);
+        }
+        return 1;
+    };
     defer rt.shutdown();
 
     var msg: c.MSG = std.mem.zeroes(c.MSG);
@@ -186,7 +202,7 @@ pub export fn wWinMain(
         switch (rt.update()) {
             .@"continue" => {},
             .quit => return 0,
-            else => |r| return r,
+            else => |r| return @intFromEnum(r),
         }
     }
     return 0;

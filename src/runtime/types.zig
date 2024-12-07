@@ -7,5 +7,5 @@ pub const UpdateResult = enum(i32) {
 pub const Status = enum(u32) {
     foreground,
     visible,
-    background,
+    invisible,
 };

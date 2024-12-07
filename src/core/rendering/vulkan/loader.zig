@@ -98,14 +98,18 @@ pub fn loadGltfMeshes(
                     const tangent = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.tangent)));
                     @memcpy(std.mem.asBytes(&vertex.tangent), tangent);
                 } else {
-                    vertex.tangent = math.vec4(0, 0, 0, 1);
+                    vertex.tangent = math.Vec3.zero();
                 }
 
                 if (texcoord_acc) |acc| {
-                    const texcoords = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(vertex.uv)));
-                    @memcpy(std.mem.asBytes(&vertex.uv), texcoords);
+                    var uv: math.Vec2 = undefined;
+                    const texcoords = gltf.readVertexAttr(bin, buffer_views, acc, i, @sizeOf(@TypeOf(uv)));
+                    @memcpy(std.mem.asBytes(&uv), texcoords);
+                    vertex.uv_x = uv.x;
+                    vertex.uv_y = uv.y;
                 } else {
-                    vertex.uv = math.vec2(0, 0);
+                    vertex.uv_x = 0;
+                    vertex.uv_y = 0;
                 }
 
                 if (color_acc) |acc| {
@@ -116,8 +120,11 @@ pub fn loadGltfMeshes(
                 }
 
                 // flip z for LH
-                vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
-                vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
+                vertex.position.z = -vertex.position.z;
+                vertex.normal.z = -vertex.normal.z;
+
+                // vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
+                // vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
             }
             vertices.items.len += vtx_count;
         }
@@ -125,7 +132,7 @@ pub fn loadGltfMeshes(
         // flip indices for LH
         var i: usize = 0;
         while (i < indices.items.len) : (i += 3) {
-            std.mem.swap(u32, &indices.items[i], &indices.items[i + 2]);
+            std.mem.swap(u32, &indices.items[i + 1], &indices.items[i + 2]);
         }
 
         mesh.* = try uploadMesh(
@@ -211,21 +218,37 @@ fn uploadMesh(
         staging_buffer: c.VkBuffer,
 
         pub fn submit(this: @This(), cmd: c.VkCommandBuffer) void {
-            const vertex_copy = c.VkBufferCopy{
-                .dstOffset = 0,
-                .srcOffset = 0,
-                .size = this.vb_size,
-            };
+            vk.cmdCopyBuffer2(
+                cmd,
+                &c.VkCopyBufferInfo2{
+                    .sType = c.VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                    .srcBuffer = this.staging_buffer,
+                    .dstBuffer = this.vertex_buffer,
+                    .regionCount = 1,
+                    .pRegions = &c.VkBufferCopy2{
+                        .sType = c.VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                        .dstOffset = 0,
+                        .srcOffset = 0,
+                        .size = this.vb_size,
+                    },
+                },
+            );
 
-            vk.cmdCopyBuffer(cmd, this.staging_buffer, this.vertex_buffer, 1, &vertex_copy);
-
-            const index_copy = c.VkBufferCopy{
-                .dstOffset = 0,
-                .srcOffset = this.vb_size,
-                .size = this.ib_size,
-            };
-
-            vk.cmdCopyBuffer(cmd, this.staging_buffer, this.index_buffer, 1, &index_copy);
+            vk.cmdCopyBuffer2(
+                cmd,
+                &c.VkCopyBufferInfo2{
+                    .sType = c.VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                    .srcBuffer = this.staging_buffer,
+                    .dstBuffer = this.index_buffer,
+                    .regionCount = 1,
+                    .pRegions = &c.VkBufferCopy2{
+                        .sType = c.VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                        .dstOffset = 0,
+                        .srcOffset = this.vb_size,
+                        .size = this.ib_size,
+                    },
+                },
+            );
         }
     };
 
@@ -362,27 +385,30 @@ pub fn loadGltfTextures(
                         c.VK_IMAGE_LAYOUT_UNDEFINED,
                         c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     );
-                    const copy_region = c.VkBufferImageCopy{
-                        .bufferOffset = 0,
-                        .bufferRowLength = 0,
-                        .bufferImageHeight = 0,
 
-                        .imageSubresource = c.VkImageSubresourceLayers{
-                            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
-                            .mipLevel = 0,
-                            .baseArrayLayer = 0,
-                            .layerCount = 1,
-                        },
-                        .imageExtent = this.image.extent,
-                    };
-
-                    vk.cmdCopyBufferToImage(
+                    vk.cmdCopyBufferToImage2(
                         cmd,
-                        this.staging_buffer,
-                        this.image.image,
-                        c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        1,
-                        &copy_region,
+                        &c.VkCopyBufferToImageInfo2{
+                            .sType = c.VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+                            .srcBuffer = this.staging_buffer,
+                            .dstImage = this.image.image,
+                            .dstImageLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            .regionCount = 1,
+                            .pRegions = &c.VkBufferImageCopy2{
+                                .sType = c.VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+                                .bufferOffset = 0,
+                                .bufferRowLength = 0,
+                                .bufferImageHeight = 0,
+
+                                .imageSubresource = c.VkImageSubresourceLayers{
+                                    .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                                    .mipLevel = 0,
+                                    .baseArrayLayer = 0,
+                                    .layerCount = 1,
+                                },
+                                .imageExtent = this.image.extent,
+                            },
+                        },
                     );
 
                     vkdraw.transitionImage(

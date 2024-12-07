@@ -88,8 +88,16 @@ pub const Mat4 = extern union {
         const fov_rad = fov_y * std.math.rad_per_deg;
         const h = 1.0 / @tan(fov_rad * 0.5);
         const w = h / aspect;
-        const a = zfar / (zfar - znear);
-        const b = (-znear * zfar) / (zfar - znear);
+
+        // normal depth
+        // const a = zfar / (zfar - znear);
+        // const b = (-znear * zfar) / (zfar - znear);
+
+        // reverse depth
+        // const a = znear / (znear - zfar);
+        // const b = -znear * a;
+        const a = -znear / (zfar - znear);
+        const b = (znear * zfar) / (zfar - znear);
 
         return projection(w, h, a, b);
     }

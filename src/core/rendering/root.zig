@@ -1,2 +1,5 @@
 pub const Options = @import("Options.zig");
-pub const Renderer = @import("vulkan/root.zig").Renderer;
+
+pub const vk = @import("vulkan/root.zig");
+pub const Renderer = vk.Renderer;
+pub const resources = vk.resources;

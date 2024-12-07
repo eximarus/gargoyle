@@ -4,8 +4,8 @@ const vk = @import("vulkan.zig");
 
 const queue_index_maxhandle: u32 = 0xFFFF;
 const image_format: c.VkFormat = c.VK_FORMAT_B8G8R8A8_UNORM;
-const image_usage_flags: c.VkImageUsageFlags = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT; //|
-// c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+const image_usage_flags: c.VkImageUsageFlags = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+    c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 pub fn create(
     arena: std.mem.Allocator,

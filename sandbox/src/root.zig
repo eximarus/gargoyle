@@ -12,27 +12,32 @@ const Context = struct {
     window: gg.platform.Window,
     renderer: gg.rendering.Renderer,
 
-    status: gg.rt.Status = gg.rt.Status.Foreground,
+    status: gg.rt.Status = gg.rt.Status.foreground,
     quit: bool = false,
 
-    test_meshes: []gg.rendering.resources.Mesh,
-    test_images: []gg.rendering.resources.Texture2D,
+    // test_meshes: []gg.rendering.resources.Mesh,
+    // test_images: []gg.rendering.resources.Texture2D,
 };
 
-const StartSystem = *const fn (Context) anyerror!void;
-const UpdateSystem = *const fn (Context, f32) anyerror!void;
+const StartSystem = *const fn (*Context) anyerror!void;
+const UpdateSystem = *const fn (*Context, f32, f32) anyerror!void;
+
+fn renderingSystem(ctx: *Context, t: f32, dt: f32) !void {
+    _ = t;
+    _ = dt;
+    try ctx.renderer.render();
+}
 
 const fixed_timestep = 1.0 / 60.0;
 
 pub const App = struct {
     gpa: std.heap.GeneralPurposeAllocator(.{}),
     arena: std.heap.ArenaAllocator,
-    fixed_delta: f32 = 0,
 
+    t: f32 = 0.0,
     ctx: Context,
     start_systems: []const StartSystem,
     update_systems: []const UpdateSystem,
-    fixed_update_systems: []const UpdateSystem,
     render_systems: []const UpdateSystem,
 
     pub fn start(window: gg.platform.Window) !*App {
@@ -43,6 +48,9 @@ pub const App = struct {
             .gpa = undefined,
             .arena = undefined,
             .ctx = undefined,
+            .start_systems = &.{},
+            .update_systems = &.{},
+            .render_systems = &.{renderingSystem},
         };
 
         self.gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -60,19 +68,19 @@ pub const App = struct {
             .gpa = gpa_allocator,
             .arena = arena_allocator,
             .window = window,
+            .renderer = try gg.rendering.Renderer.init(
+                gpa_allocator,
+                arena_allocator,
+                window,
+                .{},
+            ),
+            .thread_pool = undefined,
         };
 
         try self.ctx.thread_pool.init(.{
             .allocator = gpa_allocator,
-            .n_jobs = thread_count,
+            .n_jobs = @intCast(thread_count),
         });
-
-        self.renderer = try gg.rendering.Renderer.init(
-            gpa_allocator,
-            arena_allocator,
-            window,
-            .{},
-        );
 
         for (self.start_systems) |system| {
             try system(&self.ctx);
@@ -82,24 +90,19 @@ pub const App = struct {
     }
 
     pub fn update(self: *App, dt: f32) !gg.rt.UpdateResult {
-        self.fixed_delta += dt;
+        self.t += dt;
 
-        while (self.fixed_delta >= fixed_timestep) {
-            executeSystems(self.ctx, fixed_timestep, self.fixed_update_systems);
-            self.fixed_delta -= fixed_timestep;
-        }
+        executeSystems(&self.ctx, self.t, dt, self.update_systems);
 
-        executeSystems(self.ctx, dt, self.update_systems);
-
-        if (self.status == .background) {
+        if (self.ctx.status == .invisible) {
             time.sleep(100 * time.ns_per_ms);
             return .@"continue";
         }
 
-        executeSystems(self.ctx, dt, self.render_systems);
+        executeSystems(&self.ctx, self.t, dt, self.render_systems);
 
-        if (self.status == .visible) {
-            time.sleep(1.0 / 30.0 * time.ns_per_ms - dt);
+        if (self.ctx.status == .visible) {
+            time.sleep(@intFromFloat((1.0 / 30.0 - dt) * time.ns_per_ms));
         }
 
         _ = self.arena.reset(.{ .retain_with_limit = 1 * 1024 * 1024 }); // TODO adjust
@@ -110,12 +113,12 @@ pub const App = struct {
         return .@"continue";
     }
 
-    fn executeSystems(ctx: *Context, dt: f32, systems: []const UpdateSystem) void {
+    fn executeSystems(ctx: *Context, t: f32, dt: f32, systems: []const UpdateSystem) void {
         for (systems) |system| {
-            system(ctx, dt) catch |err| {
+            system(ctx, t, dt) catch |err| {
                 log.err("caught error during system start: {}", .{err});
-                if (@errorReturnTrace()) |t| {
-                    std.debug.dumpStackTrace(t.*);
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
                 }
             };
         }

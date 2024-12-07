@@ -17,10 +17,8 @@ const ImmediateCommand = @import("ImmediateCommand.zig");
 
 const Options = @import("../Options.zig");
 
-const shaders = @import("shader.zig");
-const Shader = shaders.Shader;
-const createDescriptorBuffer = shaders.createDescriptorBuffer;
-const createShader = shaders.create;
+const pipelines = @import("pipeline.zig");
+const createGraphicsPipeline = pipelines.createGraphics;
 
 const createInstance = @import("instance.zig").create;
 const pickPhysicalDevice = @import("physical_device.zig").pick;
@@ -72,15 +70,15 @@ imm_cmd: ImmediateCommand,
 
 test_meshes: []resources.Mesh,
 test_images: []resources.Texture2D,
-geometry_shader: Shader,
+test_pipeline: pipelines.Pipeline,
 
 physical_device_properties: c.VkPhysicalDeviceProperties2,
-descriptor_buffer_props: c.VkPhysicalDeviceDescriptorBufferPropertiesEXT,
 
 default_sampler_nearest: c.VkSampler,
 default_sampler_linear: c.VkSampler,
-test_descriptor_buffer: resources.Buffer,
-test_descriptor_buffer_addr: c.VkDeviceAddress,
+
+test_descriptor_pool: c.VkDescriptorPool,
+test_descriptor_set: c.VkDescriptorSet,
 
 window: Window,
 
@@ -117,12 +115,8 @@ pub fn init(
     self.graphics_queue_family = gpu_result.graphics_queue_family;
     vk.getPhysicalDeviceMemoryProperties(self.physical_device, &self.physical_device_mem_props);
 
-    self.descriptor_buffer_props = c.VkPhysicalDeviceDescriptorBufferPropertiesEXT{
-        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT,
-    };
     self.physical_device_properties = c.VkPhysicalDeviceProperties2{
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-        .pNext = &self.descriptor_buffer_props,
     };
     vk.getPhysicalDeviceProperties2(self.physical_device, &self.physical_device_properties);
 
@@ -192,14 +186,14 @@ pub fn init(
 
     try self.initCommands();
     try self.initSync();
-    try self.initDescriptors();
 
-    self.geometry_shader = try createShader(
+    self.test_pipeline = try createGraphicsPipeline(
         "assets/shaders/default.spv",
+        self.gpa,
         self.arena,
         self.device,
-        self.descriptor_buffer_props.descriptorBufferOffsetAlignment,
-        self.physical_device_properties.properties.limits.maxDescriptorSetSampledImages,
+        self.draw_image.format,
+        self.depth_image.format,
         .{},
     );
 
@@ -220,43 +214,42 @@ pub fn init(
         self.imm_cmd,
     );
 
-    self.test_descriptor_buffer = try createDescriptorBuffer(
-        self.device,
-        self.physical_device_mem_props,
-        self.geometry_shader.descriptor_set,
-    );
-
-    self.test_descriptor_buffer_addr = vk.getBufferDeviceAddress(
-        self.device,
-        &c.VkBufferDeviceAddressInfo{
-            .sType = c.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = self.test_descriptor_buffer.buffer,
-        },
-    );
-
-    var data: [*]u8 = undefined;
-    try vk.check(vk.mapMemory(self.device, self.test_descriptor_buffer.memory, 0, self.test_descriptor_buffer.size, 0, @ptrCast(&data)));
-
-    const image_descriptor = c.VkDescriptorImageInfo{
-        .sampler = self.test_images[0].sampler orelse self.default_sampler_nearest,
-        .imageView = self.test_images[0].view,
-        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    };
-
-    vk.getDescriptorEXT(
-        self.device,
-        &c.VkDescriptorGetInfoEXT{
-            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT,
+    try vk.check(vk.createDescriptorPool(self.device, &c.VkDescriptorPoolCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = c.VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+        .maxSets = std.math.maxInt(u16) * 1, // * poolSizeCount
+        .poolSizeCount = 1,
+        .pPoolSizes = &c.VkDescriptorPoolSize{
             .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .data = c.VkDescriptorDataEXT{
-                .pCombinedImageSampler = &image_descriptor,
-            },
+            .descriptorCount = std.math.maxInt(u16),
         },
-        self.descriptor_buffer_props.combinedImageSamplerDescriptorSize,
-        data[self.geometry_shader.descriptor_set.offset..],
-    );
+    }, null, &self.test_descriptor_pool));
 
-    vk.unmapMemory(self.device, self.test_descriptor_buffer.memory);
+    try vk.check(vk.allocateDescriptorSets(self.device, &c.VkDescriptorSetAllocateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = &c.VkDescriptorSetVariableDescriptorCountAllocateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
+            .descriptorSetCount = 1,
+            .pDescriptorCounts = @ptrCast(&(@as(u32, @intCast(std.math.maxInt(u16))) - 1)),
+        },
+        .descriptorPool = self.test_descriptor_pool,
+        .descriptorSetCount = @intCast(self.test_pipeline.descriptor_set_layouts.len),
+        .pSetLayouts = self.test_pipeline.descriptor_set_layouts.ptr,
+    }, &self.test_descriptor_set));
+
+    vk.updateDescriptorSets(self.device, 1, &c.VkWriteDescriptorSet{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = self.test_descriptor_set,
+        .dstBinding = 0,
+        // .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &c.VkDescriptorImageInfo{
+            .sampler = self.test_images[0].sampler orelse self.default_sampler_nearest,
+            .imageView = self.test_images[0].view,
+            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        },
+    }, 0, null);
 
     return self;
 }
@@ -312,8 +305,6 @@ fn initCommands(self: *VulkanRenderer) !void {
         &self.imm_cmd.cmd,
     ));
 }
-
-fn initDescriptors(_: *VulkanRenderer) !void {}
 
 fn initSync(self: *VulkanRenderer) !void {
     const fence_create_info = c.VkFenceCreateInfo{
@@ -401,8 +392,8 @@ pub fn render(self: *VulkanRenderer) !void {
         rotation = rotation.mul(rot).norm();
     }
 
-    const model = math.Mat4.transform(
-        mesh.bounds.center.mulf(-1),
+    const model = math.Mat4.transformation(
+        mesh.bounds.origin.mulf(-1),
         rotation,
         math.Vec3.one().mulf(50),
     );
@@ -431,11 +422,10 @@ pub fn render(self: *VulkanRenderer) !void {
         self.draw_extent,
         self.draw_image,
         self.depth_image,
-        self.geometry_shader,
+        self.test_pipeline,
         push_constants,
         mesh.index_buffer,
-        self.test_descriptor_buffer,
-        self.test_descriptor_buffer_addr,
+        self.test_descriptor_set,
     );
 
     vkdraw.transitionImage(

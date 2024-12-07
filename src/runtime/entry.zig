@@ -1,7 +1,7 @@
 const gg = @import("gargoyle");
 const App = @import("app").App;
 
-export fn ggStart(window: gg.platform.Window) callconv(.C) *App {
+export fn ggStart(window: gg.platform.Window) callconv(.C) ?*App {
     return App.start(window) catch null;
 }
 
