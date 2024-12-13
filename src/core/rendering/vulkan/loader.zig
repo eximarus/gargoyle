@@ -122,9 +122,6 @@ pub fn loadGltfMeshes(
                 // flip z for LH
                 vertex.position.z = -vertex.position.z;
                 vertex.normal.z = -vertex.normal.z;
-
-                // vertex.normal.z = (-vertex.normal.z + 1.0) / 2.0;
-                // vertex.position.z = (-vertex.position.z + 1.0) / 2.0;
             }
             vertices.items.len += vtx_count;
         }

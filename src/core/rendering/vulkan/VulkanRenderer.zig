@@ -402,22 +402,21 @@ pub fn render(self: *VulkanRenderer) !void {
         math.Vec3.one().mulf(50),
     );
 
-    const view = math.Mat4.view(
+    const aspect = @as(f32, @floatFromInt(self.draw_extent.width)) /
+        @as(f32, @floatFromInt(self.draw_extent.height));
+
+    const camera = core.rendering.cameras.createPerspective(
+        60.0,
+        aspect,
+        0.3,
+        100.0,
         math.vec3(0, 0.0, -5.0),
         math.vec3(0, 0.0, 0.0),
         math.vec3(0, 1.0, 0.0),
     );
 
-    const projection = math.Mat4.perspective(
-        60.0,
-        self.draw_extent.width,
-        self.draw_extent.height,
-        0.3,
-        100.0,
-    );
-
     const push_constants = types.PushConstants{
-        .world_matrix = projection.mul(view.mul(model)),
+        .world_matrix = camera.view_proj.mul(model),
         .vertex_buffer = mesh.vb_addr,
     };
 

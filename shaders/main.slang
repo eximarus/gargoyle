@@ -170,30 +170,26 @@ v2f vsMain(uint vertexID: SV_VertexID,
     return v2f(float3(worldPos), v.uv, v.color, TBN, model.material, pos);
 }
 
-// default direction = float3(0.0, 0.0, 1.0) worlspace
 struct DirectionalLight {
-    float3 rotation;
+    float3 direction;
     float3 color;
     float intensity;
 }
 
 struct PointLight {
-    float3 position; // worldSpace
-
+    float3 position; 
     float3 color;
     float intensity;
-    float range; // default to infinity
 }
 
 struct SpotLight {
-    float3 position; // worldSpace
-    float3 rotation;
-
+    float3 position; 
+    float3 direction;
     float3 color;
     float intensity;
-    float range;          // default to infinity
-    float innerConeAngle; // default 0
-    float outerConeAngle; // default PI / 4.0
+
+    float innerConeAngle; 
+    float outerConeAngle;
 }
 
 // PBR
@@ -206,9 +202,6 @@ struct Material {
 
     float occlusionStrength;
 };
-
-[[vk::binding(0, 0)]]
-Sampler2D textures[];
 
 const float PI = 3.14159265359;
 
@@ -248,21 +241,43 @@ float3 fresnelSchlick(float cosTheta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// float3 brdf() { let H = normalize(V + L); }
+float3 brdf(
+    float3 N,
+    float3 V,
+    float3 L,
+    float3 F0,
+    float3 albedo,
+    float metallic,
+    float roughness,
+) {
+    let H = normalize(L + V);
 
-// float3 pbr(float3 N, float3 V, float3 L, float3 albedo, float metallic,
-// float roughness, float occlusion, float emissive,
-// float3 ambientColor) {
+    let NdotL = max(dot(N, L), 0.0);
 
-// var color = brdf(N, V, L, albedo, metallic, roughness);
-// color += ambientColor * occlusion;
-// color += emissive;
+    let NDF = DistributionGGX(N, H, roughness);
+    let G = GeometrySmith(N, V, L, roughness);
+    let F = fresnelSchlick(max(dot(H,V), 0.0), F0);
+    
+    var kD = float3(1.0) - F;
+    kD *= 1.0 - metallic;
 
-// return color;
-//}
+    let denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + 0.0001;
+    let specular = (NDF * G * F) / denominator;
+
+    return (kD * albedo / PI + specular) * NdotL;
+}
+
+struct FragmentUniforms {
+};
 
 [shader("fragment"), require(spirv, sm_6_6, SPV_EXT_descriptor_indexing)]
-float4 fsMain(v2f i) : SV_Target {
+float4 fsMain(
+    uniform ParameterBlock<Sampler2D[]> textures, 
+    uniform ParameterBlock<DirectionalLight[]> directionalLights, 
+    uniform ParameterBlock<PointLight[]> pointLights, 
+    uniform ParameterBlock<SpotLight[]> spotLights, 
+    v2f i
+) : SV_Target {
     let mat = i.material;
 
     let albedo = textures[mat.albedoTexID].Sample(i.uv).rgb;
@@ -270,23 +285,62 @@ float4 fsMain(v2f i) : SV_Target {
         textures[mat.metallicRoughnessTexID].Sample(i.uv).rgb;
     let metallic = metallicRoughness.b;
     let roughness = metallicRoughness.r;
+
     var normal = textures[mat.normalTexID].Sample(i.uv).rgb;
     normal = normal * 2.0 - 1.0;
     normal = normalize(i.TBN * normal);
 
-    let occlusion =
-        1.0 + mat.occlusionStrength *
-                  (textures[mat.occlusionTexID].Sample(i.uv).r - 1.0);
+    let occlusion = 1.0 + mat.occlusionStrength *
+          (textures[mat.occlusionTexID].Sample(i.uv).r - 1.0);
     let emissive = textures[mat.emissiveTexID].Sample(i.uv).r;
 
     let eye = gfxPushConst.eye;
 
-    let light = gfxPushConst.lights[0]; // TODO loop lights
     let V = normalize(eye - i.worldPos);
-    let L = normalize(light.position - i.worldPos);
+    let N = normal;
+    let F0 = lerp(float3(0.04), albedo, metallic);
 
-    return float4(pbr(normal, V, L, albedo, metallic, roughness, occlusion,
-                      emissive, light.ambient),
-                  1.0);
+    let fragPos = i.worldPos;
+
+    var Lo = float3(0.0);
+    for(int i = 0; i < directionalLights.getCount(); ++i) {
+        let light = directionalLights[i];
+        let L = normalize(-light.direction);
+        let radiance = light.color * light.intensity;
+        Lo += brdf(N, V, L, F0, albedo, metallic, roughness) * radiance;
+    }
+
+    for(int i = 0; i < pointLights.getCount(); ++i) {
+        let light = pointLights[i];
+        let L = normalize(light.position - fragPos);
+
+        let distance = length(light.position - fragPos);
+        let attenuation = 1.0 / (distance * distance);
+        let radiance = attenuation * light.color * light.intensity;
+
+        Lo += brdf(N, V, L, F0, albedo, metallic, roughness) * radiance;
+    }
+
+    for(int i = 0; i < spotLights.getCount(); ++i) {
+        let light = spotLights[i];
+        let L = normalize(light.position - fragPos);
+
+        let distance = length(light.position - fragPos);
+        let attenuation = 1.0 / (distance * distance);
+
+        let cosTheta = dot(normalize(light.direction), -L);
+        let cosThetaOuter = cos(light.outerConeAngle);
+        let spotlightFactor = clamp((cosTheta - cosThetaOuter) / (cos(light.innerConeAngle) - cosThetaOuter), 0.0, 1.0);
+        let radiance = attenuation * spotlightFactor * light.color * light.intensity;
+
+        Lo += brdf(N, V, L, F0, albedo, metallic, roughness) * radiance;
+    }
+
+    let ambient = float3(0.03) * albedo * occlusion;
+    var color = ambient + Lo + emissive;
+    color = color / (color + float3(1.0));
+    color = pow(color, float3(1.0/2.2));
+    return float4(color, 1.0);
 }
+
 

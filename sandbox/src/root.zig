@@ -4,6 +4,55 @@ const time = gg.time;
 const gltf = gg.loading.gltf;
 
 const log = std.log.scoped(.app);
+// std.simd.interlace()
+// std.simd.deinterlace
+
+pub const Meshes = gg.Archetype(gg.rendering.resources.Mesh);
+
+pub const StaticEntities = gg.Archetype(struct {
+    pos: gg.math.Vec3,
+    rot: gg.math.Quat,
+    scale: gg.math.Vec3,
+
+    // TODO id system for resources
+    mesh: *gg.rendering.resources.Mesh = undefined,
+    material: *gg.rendering.resources.Material = undefined,
+});
+
+pub const PhysicsEntities = gg.Archetype(struct {
+    // hot
+    pos_x: f32 = 0,
+    pos_y: f32 = 0,
+    pos_z: f32 = 0,
+
+    rot_a: f32 = 1,
+    rot_b: f32 = 0,
+    rot_c: f32 = 0,
+    rot_d: f32 = 0,
+
+    scale_x: f32 = 1,
+    scale_y: f32 = 1,
+    scale_z: f32 = 1,
+
+    vel_x: f32 = 0,
+    vel_y: f32 = 0,
+    vel_z: f32 = 0,
+
+    parent: ?PhysicsEntities.Id = null,
+    children: std.ArrayList(PhysicsEntities.Id),
+
+    // TODO id system for resources
+    mesh: *gg.rendering.resources.Mesh = undefined,
+    material: *gg.rendering.resources.Material = undefined,
+});
+
+// pub const Enemy = struct {
+//     // use references if transforms are not accessed often
+//     // if transforms are acccessed often embed transform data into archetype
+//     node: SimulatedMeshNode.Id,
+//     health: f32,
+//     //...
+// };
 
 const Context = struct {
     gpa: std.mem.Allocator,
@@ -11,6 +60,7 @@ const Context = struct {
     thread_pool: std.Thread.Pool,
     window: gg.platform.Window,
     renderer: gg.rendering.Renderer,
+    static_meshes: StaticEntities,
 
     status: gg.rt.Status = gg.rt.Status.foreground,
     quit: bool = false,
@@ -19,12 +69,15 @@ const Context = struct {
     // test_images: []gg.rendering.resources.Texture2D,
 };
 
-const StartSystem = *const fn (*Context) anyerror!void;
-const UpdateSystem = *const fn (*Context, f32, f32) anyerror!void;
+fn render(ctx: *Context, t: f32, dt: f32) !void {
+    const id = try ctx.static_meshes.create(StaticEntities.Elem{
+        .pos = gg.math.vec3(dt, dt, t),
+        .rot = gg.math.Quat.identity(),
+        .scale = gg.math.Vec3.one(),
+    });
+    const e = ctx.static_meshes.get(id);
+    std.log.info("{}", .{e.pos});
 
-fn renderingSystem(ctx: *Context, t: f32, dt: f32) !void {
-    _ = t;
-    _ = dt;
     try ctx.renderer.render();
 }
 
@@ -36,9 +89,6 @@ pub const App = struct {
 
     t: f32 = 0.0,
     ctx: Context,
-    start_systems: []const StartSystem,
-    update_systems: []const UpdateSystem,
-    render_systems: []const UpdateSystem,
 
     pub fn start(window: gg.platform.Window) !*App {
         std.log.info("sandbox start\n", .{});
@@ -48,9 +98,6 @@ pub const App = struct {
             .gpa = undefined,
             .arena = undefined,
             .ctx = undefined,
-            .start_systems = &.{},
-            .update_systems = &.{},
-            .render_systems = &.{renderingSystem},
         };
 
         self.gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -75,6 +122,7 @@ pub const App = struct {
                 .{},
             ),
             .thread_pool = undefined,
+            .static_meshes = StaticEntities.init(gpa_allocator),
         };
 
         try self.ctx.thread_pool.init(.{
@@ -82,24 +130,23 @@ pub const App = struct {
             .n_jobs = @intCast(thread_count),
         });
 
-        for (self.start_systems) |system| {
-            try system(&self.ctx);
-        }
-
         return self;
     }
 
     pub fn update(self: *App, dt: f32) !gg.rt.UpdateResult {
         self.t += dt;
 
-        executeSystems(&self.ctx, self.t, dt, self.update_systems);
-
         if (self.ctx.status == .invisible) {
             time.sleep(100 * time.ns_per_ms);
             return .@"continue";
         }
 
-        executeSystems(&self.ctx, self.t, dt, self.render_systems);
+        render(&self.ctx, self.t, dt) catch |err| {
+            log.err("{}", .{err});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+        };
 
         if (self.ctx.status == .visible) {
             time.sleep(@intFromFloat((1.0 / 30.0 - dt) * time.ns_per_ms));
@@ -111,17 +158,6 @@ pub const App = struct {
             return .quit;
         }
         return .@"continue";
-    }
-
-    fn executeSystems(ctx: *Context, t: f32, dt: f32, systems: []const UpdateSystem) void {
-        for (systems) |system| {
-            system(ctx, t, dt) catch |err| {
-                log.err("caught error during system start: {}", .{err});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-            };
-        }
     }
 
     pub fn onStatusChanged(self: *App, status: gg.rt.Status) void {

@@ -14,7 +14,6 @@ pub const Mesh = struct {
     index_buffer: Buffer,
     vertex_buffer: Buffer,
     vb_addr: c.VkDeviceAddress,
-    name: ?[]const u8 = null,
     bounds: Bounds,
 };
 
@@ -25,7 +24,7 @@ pub const Texture2D = struct {
     format: c.VkFormat,
     image: c.VkImage,
     view: c.VkImageView,
-    sampler: ?c.VkSampler,
+    sampler: c.VkSampler,
     memory: c.VkDeviceMemory,
 };
 
