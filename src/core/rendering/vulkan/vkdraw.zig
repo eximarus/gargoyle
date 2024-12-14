@@ -40,6 +40,12 @@ pub inline fn transitionImage(
     });
 }
 
+pub const BlendParameters = struct {
+    src_factor: c.VkBlendFactor,
+    dst_factor: c.VkBlendFactor,
+    op: c.VkBlendOp,
+};
+
 // TODO have this in game code or at least partially
 pub fn graphics(
     cmd: c.VkCommandBuffer,
@@ -50,6 +56,18 @@ pub fn graphics(
     push_constants: types.PushConstants,
     index_buffer: resources.Buffer,
     descriptor_set: c.VkDescriptorSet,
+    options: struct {
+        input_topology: c.VkPrimitiveTopology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        polygon_mode: c.VkPolygonMode = c.VK_POLYGON_MODE_FILL,
+        depth_test: ?struct {
+            depth_write_enable: bool = true,
+            op: c.VkCompareOp = c.VK_COMPARE_OP_GREATER_OR_EQUAL,
+        } = .{},
+        blending: ?struct {
+            color: BlendParameters,
+            alpha: BlendParameters,
+        } = null,
+    },
 ) void {
     vk.cmdBeginRendering(cmd, &c.VkRenderingInfo{
         .sType = c.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
@@ -107,6 +125,36 @@ pub fn graphics(
             .height = draw_extent.height,
         },
     });
+
+    vk.cmdSetPrimitiveTopology(cmd, options.input_topology);
+    vk.cmdSetPolygonModeEXT(cmd, options.polygon_mode);
+
+    if (options.depth_test) |depth_test| {
+        vk.cmdSetDepthTestEnable(cmd, c.VK_TRUE);
+        vk.cmdSetDepthWriteEnable(cmd, vk.Bool32(depth_test.depth_write_enable));
+        vk.cmdSetDepthCompareOp(cmd, depth_test.op);
+    } else {
+        vk.cmdSetDepthTestEnable(cmd, c.VK_FALSE);
+    }
+
+    if (options.blending) |blending| {
+        vk.cmdSetColorBlendEnableEXT(cmd, 0, 1, &[_]c.VkBool32{c.VK_TRUE});
+        vk.cmdSetColorBlendEquationEXT(cmd, 0, 1, &[_]c.VkColorBlendEquationEXT{
+            c.VkColorBlendEquationEXT{
+                .srcColorBlendFactor = blending.color.src_factor,
+                .dstColorBlendFactor = blending.color.dst_factor,
+                .colorBlendOp = blending.color.op,
+                .srcAlphaBlendFactor = blending.alpha.src_factor,
+                .dstAlphaBlendFactor = blending.alpha.dst_factor,
+                .alphaBlendOp = blending.alpha.op,
+            },
+        });
+    } else {
+        vk.cmdSetColorBlendEnableEXT(cmd, 0, 1, &[_]c.VkBool32{c.VK_FALSE});
+        vk.cmdSetColorBlendEquationEXT(cmd, 0, 1, &[_]c.VkColorBlendEquationEXT{
+            c.VkColorBlendEquationEXT{},
+        });
+    }
 
     vk.cmdPushConstants(
         cmd,

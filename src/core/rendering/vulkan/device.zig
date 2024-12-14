@@ -4,6 +4,10 @@ const vk = @import("vulkan.zig");
 
 const required_device_extensions: []const c.String = &.{
     c.VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+
+    c.VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+    c.VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME,
+    c.VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 };
 
 const optional_device_extensions: []const c.String = &.{
@@ -25,6 +29,7 @@ pub fn create(
         .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
         .variablePointers = c.VK_TRUE,
         .variablePointersStorageBuffer = c.VK_TRUE,
+        .shaderDrawParameters = c.VK_TRUE,
     };
 
     var features12 = c.VkPhysicalDeviceVulkan12Features{
@@ -47,11 +52,19 @@ pub fn create(
         .synchronization2 = c.VK_TRUE,
     };
 
+    var dynamic_state_features = c.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT{
+        .sType = c.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+        .pNext = &features13,
+        .extendedDynamicState3PolygonMode = c.VK_TRUE,
+        .extendedDynamicState3ColorBlendEnable = c.VK_TRUE,
+        .extendedDynamicState3ColorBlendEquation = c.VK_TRUE,
+    };
+
     const layers = if (vk.enable_validation_layers) vk.validation_layers else &[_]c.String{};
     var queue_priority: f32 = 1.0;
     const device_info = c.VkDeviceCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &features13,
+        .pNext = &dynamic_state_features,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &c.VkDeviceQueueCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,

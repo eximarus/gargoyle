@@ -53,16 +53,6 @@ pub fn createGraphics(
     options: struct {
         vs_main: c.String = "vsMain",
         fs_main: c.String = "fsMain",
-        input_topology: c.VkPrimitiveTopology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        polygon_mode: c.VkPolygonMode = c.VK_POLYGON_MODE_FILL,
-        depth_test: ?struct {
-            depth_write_enable: bool = true,
-            op: c.VkCompareOp = c.VK_COMPARE_OP_GREATER_OR_EQUAL,
-        } = .{},
-        blending: ?struct {
-            color: BlendParameters,
-            alpha: BlendParameters,
-        } = null,
     },
 ) !Pipeline {
     const f = try std.fs.cwd().openFile(path, .{});
@@ -117,55 +107,6 @@ pub fn createGraphics(
         .pSetLayouts = &descriptor_set_layout,
     }, null, &layout));
 
-    const vs_stage = c.VkPipelineShaderStageCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
-        .module = module,
-        .pName = options.vs_main,
-    };
-
-    const fs_stage = c.VkPipelineShaderStageCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = module,
-        .pName = options.fs_main,
-    };
-
-    var color_blend_attachment = c.VkPipelineColorBlendAttachmentState{
-        .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT |
-            c.VK_COLOR_COMPONENT_G_BIT |
-            c.VK_COLOR_COMPONENT_B_BIT |
-            c.VK_COLOR_COMPONENT_A_BIT,
-    };
-
-    if (options.blending) |blending| {
-        color_blend_attachment.blendEnable = c.VK_TRUE;
-
-        color_blend_attachment.srcColorBlendFactor = blending.color.src_factor;
-        color_blend_attachment.dstColorBlendFactor = blending.color.dst_factor;
-        color_blend_attachment.colorBlendOp = blending.color.op;
-
-        color_blend_attachment.srcAlphaBlendFactor = blending.alpha.src_factor;
-        color_blend_attachment.dstAlphaBlendFactor = blending.alpha.dst_factor;
-        color_blend_attachment.alphaBlendOp = blending.alpha.op;
-    }
-
-    var depth_stencil = c.VkPipelineDepthStencilStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthBoundsTestEnable = c.VK_FALSE,
-        .stencilTestEnable = c.VK_FALSE,
-        .front = .{},
-        .back = .{},
-        .minDepthBounds = 0.0,
-        .maxDepthBounds = 1.0,
-    };
-
-    if (options.depth_test) |depth_test| {
-        depth_stencil.depthTestEnable = c.VK_TRUE;
-        depth_stencil.depthWriteEnable = vk.Bool32(depth_test.depth_write_enable);
-        depth_stencil.depthCompareOp = depth_test.op;
-    }
-
     var handle: c.VkPipeline = undefined;
     try vk.check(vk.createGraphicsPipelines(device, null, 1, &c.VkGraphicsPipelineCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -176,48 +117,79 @@ pub fn createGraphics(
             .depthAttachmentFormat = depth_format,
         },
         .stageCount = 2,
-        .pStages = &[2]c.VkPipelineShaderStageCreateInfo{ vs_stage, fs_stage },
-        .pVertexInputState = &.{
+        .pStages = &[2]c.VkPipelineShaderStageCreateInfo{
+            c.VkPipelineShaderStageCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+                .module = module,
+                .pName = options.vs_main,
+            },
+            c.VkPipelineShaderStageCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+                .module = module,
+                .pName = options.fs_main,
+            },
+        },
+        .pVertexInputState = &c.VkPipelineVertexInputStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         },
-        .pInputAssemblyState = &.{
+        .pInputAssemblyState = &c.VkPipelineInputAssemblyStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            .topology = options.input_topology,
             .primitiveRestartEnable = c.VK_FALSE,
         },
-        .pViewportState = &.{
+        .pViewportState = &c.VkPipelineViewportStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
             .scissorCount = 1,
         },
-        .pRasterizationState = &.{
+        .pRasterizationState = &c.VkPipelineRasterizationStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .polygonMode = options.polygon_mode,
             .lineWidth = 1.0,
             .cullMode = c.VK_CULL_MODE_BACK_BIT,
             .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
         },
-        .pMultisampleState = &.{
+        .pMultisampleState = &c.VkPipelineMultisampleStateCreateInfo{
             // disabled
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
             .sampleShadingEnable = c.VK_FALSE,
             .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
         },
-        .pColorBlendState = &.{
+        .pColorBlendState = &c.VkPipelineColorBlendStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
             .logicOpEnable = c.VK_FALSE,
             .logicOp = c.VK_LOGIC_OP_COPY,
             .attachmentCount = 1,
-            .pAttachments = &color_blend_attachment,
+            .pAttachments = &c.VkPipelineColorBlendAttachmentState{
+                .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT |
+                    c.VK_COLOR_COMPONENT_G_BIT |
+                    c.VK_COLOR_COMPONENT_B_BIT |
+                    c.VK_COLOR_COMPONENT_A_BIT,
+            },
         },
-        .pDepthStencilState = &depth_stencil,
+        .pDepthStencilState = &c.VkPipelineDepthStencilStateCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .depthBoundsTestEnable = c.VK_FALSE,
+            .stencilTestEnable = c.VK_FALSE,
+            .front = .{},
+            .back = .{},
+            .minDepthBounds = 0.0,
+            .maxDepthBounds = 1.0,
+        },
         .layout = layout,
-        .pDynamicState = &.{
+        .pDynamicState = &c.VkPipelineDynamicStateCreateInfo{
             .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = 2,
-            .pDynamicStates = &[2]c.VkDynamicState{
+            .dynamicStateCount = 9,
+            .pDynamicStates = &[9]c.VkDynamicState{
                 c.VK_DYNAMIC_STATE_VIEWPORT,
                 c.VK_DYNAMIC_STATE_SCISSOR,
+                c.VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,
+                c.VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
+                c.VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
+                c.VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
+                c.VK_DYNAMIC_STATE_POLYGON_MODE_EXT,
+                c.VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT,
+                c.VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT,
             },
         },
     }, null, &handle));

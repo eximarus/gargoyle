@@ -70,14 +70,16 @@ const Context = struct {
 };
 
 fn render(ctx: *Context, t: f32, dt: f32) !void {
-    const id = try ctx.static_meshes.create(StaticEntities.Elem{
-        .pos = gg.math.vec3(dt, dt, t),
-        .rot = gg.math.Quat.identity(),
-        .scale = gg.math.Vec3.one(),
-    });
-    const e = ctx.static_meshes.get(id);
-    std.log.info("{}", .{e.pos});
+    // const id = try ctx.static_meshes.create(StaticEntities.Elem{
+    //     .pos = gg.math.vec3(dt, dt, t),
+    //     .rot = gg.math.Quat.identity(),
+    //     .scale = gg.math.Vec3.one(),
+    // });
+    // const e = ctx.static_meshes.get(id);
+    // std.log.info("{}", .{e.pos});
 
+    _ = t;
+    _ = dt;
     try ctx.renderer.render();
 }
 

@@ -267,6 +267,13 @@ pub inline fn result(r: c.VkResult) Result {
 //      'vkCmdCopyBufferToImage2',
 //      'vkCmdDrawIndexedIndirect',
 //      'vkCmdDrawIndexedIndirectCount',
+//      'vkCmdSetPrimitiveTopology',
+//      'vkCmdSetDepthTestEnable',
+//      'vkCmdSetDepthWriteEnable',
+//      'vkCmdSetDepthCompareOp',
+//      'vkCmdSetPolygonModeEXT',
+//      'vkCmdSetColorBlendEnableEXT',
+//      'vkCmdSetColorBlendEquationEXT',
 //  ]
 //  all = global_defs + instance_defs + device_defs
 //]]]
@@ -368,6 +375,13 @@ pub var cmdSetDepthBounds: PFN(c.PFN_vkCmdSetDepthBounds) = undefined;
 pub var cmdCopyBufferToImage2: PFN(c.PFN_vkCmdCopyBufferToImage2) = undefined;
 pub var cmdDrawIndexedIndirect: PFN(c.PFN_vkCmdDrawIndexedIndirect) = undefined;
 pub var cmdDrawIndexedIndirectCount: PFN(c.PFN_vkCmdDrawIndexedIndirectCount) = undefined;
+pub var cmdSetPrimitiveTopology: PFN(c.PFN_vkCmdSetPrimitiveTopology) = undefined;
+pub var cmdSetDepthTestEnable: PFN(c.PFN_vkCmdSetDepthTestEnable) = undefined;
+pub var cmdSetDepthWriteEnable: PFN(c.PFN_vkCmdSetDepthWriteEnable) = undefined;
+pub var cmdSetDepthCompareOp: PFN(c.PFN_vkCmdSetDepthCompareOp) = undefined;
+pub var cmdSetPolygonModeEXT: PFN(c.PFN_vkCmdSetPolygonModeEXT) = undefined;
+pub var cmdSetColorBlendEnableEXT: PFN(c.PFN_vkCmdSetColorBlendEnableEXT) = undefined;
+pub var cmdSetColorBlendEquationEXT: PFN(c.PFN_vkCmdSetColorBlendEquationEXT) = undefined;
 //[[[end]]]
 
 pub fn loadGlobalFunctions() void {
@@ -488,5 +502,12 @@ pub fn loadDeviceFunctions(device: c.VkDevice) void {
     getDeviceProcAddr(device, "vkCmdCopyBufferToImage2");
     getDeviceProcAddr(device, "vkCmdDrawIndexedIndirect");
     getDeviceProcAddr(device, "vkCmdDrawIndexedIndirectCount");
+    getDeviceProcAddr(device, "vkCmdSetPrimitiveTopology");
+    getDeviceProcAddr(device, "vkCmdSetDepthTestEnable");
+    getDeviceProcAddr(device, "vkCmdSetDepthWriteEnable");
+    getDeviceProcAddr(device, "vkCmdSetDepthCompareOp");
+    getDeviceProcAddr(device, "vkCmdSetPolygonModeEXT");
+    getDeviceProcAddr(device, "vkCmdSetColorBlendEnableEXT");
+    getDeviceProcAddr(device, "vkCmdSetColorBlendEquationEXT");
     //[[[end]]]
 }

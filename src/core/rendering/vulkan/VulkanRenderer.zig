@@ -429,6 +429,7 @@ pub fn render(self: *VulkanRenderer) !void {
         push_constants,
         mesh.index_buffer,
         self.test_descriptor_set,
+        .{},
     );
 
     vkdraw.transitionImage(
